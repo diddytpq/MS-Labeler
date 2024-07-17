@@ -1,0 +1,29 @@
+# video && image
+
+*.avi
+*.mov
+*.mp4
+*.jpg
+*.png
+
+# network weight
+*.bin
+*.tar
+*.pt
+*.pth
+*.wav
+*.engine
+*.onnx
+
+# folder
+vscode/*
+train/*
+dataset/*
+weights/*
+
+# cache
+*.pyc
+
+# json file
+*.json
+
