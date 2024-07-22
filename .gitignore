@@ -14,7 +14,7 @@
 *.wav
 *.engine
 *.onnx
-
+*.zip
 # folder
 vscode/*
 train/*
