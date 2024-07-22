@@ -524,8 +524,8 @@ def get_zero_shot_label(processor, model, device, buffer):
             results = processor.post_process_grounded_object_detection(
                 outputs,
                 inputs.input_ids,
-                box_threshold=0.4,
-                text_threshold=0.3,
+                box_threshold=0.1,
+                text_threshold=0.55,
                 target_sizes=[pil_img.size[::-1]]
             )
 
@@ -556,11 +556,11 @@ def train_model(yolo_weight_path):
                           project = "./train/weights",
                           name = f"last",
                             exist_ok = True,
-                            epochs = 5,
+                            epochs = 10,
                             imgsz = 640,
-                            batch = 0.8 ,
+                            batch = 0.6 ,
                             device = '0',
-                            save_period = 3,
+                            save_period = -1,
                             freeze = 10,
                             plots = True,
                             )     

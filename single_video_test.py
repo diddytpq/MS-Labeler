@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 import cv2
 import torch
-from utils import make_square_bbox, get_yolo_label, get_zero_shot_label, check_LLM, plot_one_box, get_img_buffer, nms_test, create_dataset_list, save_final_dataset, train_model
+from utils import check_LLM, make_square_bbox, get_yolo_label, get_zero_shot_label, nms, plot_one_box, get_img_buffer, nms_test, create_dataset_list, save_final_dataset, train_model
 
 import numpy as np
 
@@ -19,40 +19,43 @@ from transformers import AutoModel, AutoTokenizer
 
 import torchvision.transforms as T
 
-
-
 TEST = True
 
 HOME = Path.home()
 device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
-video_list_path = os.path.join(HOME, "workspace", "MS-Auto-Label-Tool", "videos")
+video_list_path = os.path.join(os.getcwd(), "videos")
 video_name_list = os.listdir(video_list_path)
+yolo_weight_path = os.path.join(os.getcwd(), "weights", "yolo", "ms-ai2407-finetune_M.pt")
+
 with torch.no_grad():
     for video_name in video_name_list:
-        camera_name = "camera_test"
-        video_name = "09.02.50_침입.mp4"
+        camera_name = "test"
+        video_name = "camera_7_edit.mp4"
 
-        yolo_model = YOLO('./weights/yolo/ms-ai2401-finetune.pt')  # load a pretrained model (recommended for training)\
+        yolo_model = YOLO(yolo_weight_path)  # load a pretrained model (recommended for training)\
 
         # zero_shot_ob_model = AutoModelForCausalLM.from_pretrained("./weights/Florence_2_large", trust_remote_code=True).to(device)
         # processor = AutoProcessor.from_pretrained("./weights/Florence_2_large", trust_remote_code=True)
-        processor = AutoProcessor.from_pretrained("./weights/grounding-dino-base")
-        zero_shot_ob_model = AutoModelForZeroShotObjectDetection.from_pretrained("./weights/grounding-dino-base").to(device)
+        processor = AutoProcessor.from_pretrained(os.path.join(os.getcwd(),"weights/grounding-dino-base"))
+        zero_shot_ob_model = AutoModelForZeroShotObjectDetection.from_pretrained(os.path.join(os.getcwd(),"weights/grounding-dino-base")).to(device)
         # video_name = "people-walking.mp4"
-        img_save_dir = os.path.join(HOME, "workspace", "MS-Auto-Label-Tool", "dataset", camera_name, "train", "images")
-        label_save_dir = os.path.join(HOME, "workspace", "MS-Auto-Label-Tool", "dataset", camera_name, "train", "labels")
+        img_save_dir = os.path.join(os.getcwd(), "dataset", camera_name, "train", "images")
+        label_save_dir = os.path.join(os.getcwd(), "dataset", camera_name, "train", "labels")
+
 
         if TEST:
             img_save_path = f"./results/{video_name}/"
             os.makedirs(img_save_path, exist_ok=True)
 
-        img_buffer = get_img_buffer(video_path = os.path.join(video_list_path, video_name))
+        img_buffer = get_img_buffer(video_path = os.path.join(video_list_path, camera_name, video_name))
         # img_buffer = [cv2.imread("./a.png"), cv2.imread("./b.png"),cv2.imread("./c.png"),cv2.imread("./d.png"),cv2.imread("./e.png"),cv2.imread("./f.png"),cv2.imread("./g.png")]
         # img_buffer = [cv2.imread("./Screenshot from 2024-07-10 16-09-51.png")]
 
         yolo_label_data = get_yolo_label(model = yolo_model, buffer = img_buffer)
         zeroshot_label_data = get_zero_shot_label(model = zero_shot_ob_model, buffer = img_buffer, processor = processor, device = device)
+
+        print(len(img_buffer))
 
 
         non_llm_input_bboxes = []
@@ -85,11 +88,11 @@ with torch.no_grad():
         llm_model.eval()
 
         LLM_label = check_LLM(model = llm_model,
-                            tokenizer = tokenizer,
-                            img_buffer = img_buffer,
-                            label = llm_input_bboxes,
-                            verbose = False
-                            )
+                                    tokenizer = tokenizer,
+                                    img_buffer = img_buffer,
+                                    label = llm_input_bboxes,
+                                    verbose = False
+                                    )
         final_bboxes_list = []
 
         for i in range(len(img_buffer)):
@@ -145,21 +148,21 @@ with torch.no_grad():
                 #     if key == 27 : break
 
         
-            save_final_dataset(video_name = video_name,
-                                date = "test",
-                                img_buffer = img_buffer, 
-                                label = final_bboxes_list,
-                                img_save_dir = img_save_dir, 
-                                label_save_dir = label_save_dir,
-                                )
+            # save_final_dataset(video_name = video_name,
+            #                     date = "test",
+            #                     img_buffer = img_buffer, 
+            #                     label = final_bboxes_list,
+            #                     img_save_dir = img_save_dir, 
+            #                     label_save_dir = label_save_dir,
+            #                     )
         break
 
-dataset_path = os.path.join("./", "dataset")
+# dataset_path = os.path.join("./", "dataset")
 
-create_dataset_list(dataset_path)
+# create_dataset_list(dataset_path)
 
-yolo_weight_path = './weights/yolo/ms-ai2401-finetune.pt'
-train_model(yolo_weight_path = yolo_weight_path)
+# yolo_weight_path = './weights/yolo/ms-ai2401-finetune.pt'
+# train_model(yolo_weight_path = yolo_weight_path)
 
 
 cv2.destroyAllWindows()
