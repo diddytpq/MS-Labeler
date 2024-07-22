@@ -293,6 +293,43 @@ def get_Florence_label(model, processor, buffer, device):
 
     return total_label
 
+
+
+
+
+
+
+def make_square_bbox(bbox, img, extend_ratio = 1.5):
+    label, x1, y1, x2, y2, conf = bbox
+    img_height, img_width = img.shape[:2]
+
+    # Calculate width, height, and maximum side length
+    width = x2 - x1
+    height = y2 - y1
+
+    if (img_width < width * extend_ratio) or (img_height < height * extend_ratio):
+        extend_ratio = 3
+
+    max_side = max(width, height) * extend_ratio  # Increase by 1.3 times
+    
+    # Calculate the center of the bounding box
+    center_x = (x1 + x2) / 2
+    center_y = (y1 + y2) / 2
+    
+    # Calculate new coordinates
+    new_x1 = center_x - max_side / 2
+    new_y1 = center_y - max_side / 2
+    new_x2 = center_x + max_side / 2
+    new_y2 = center_y + max_side / 2
+    
+    # Ensure the new coordinates are within image boundaries
+    new_x1 = max(new_x1, 0)
+    new_y1 = max(new_y1, 0)
+    new_x2 = min(new_x2, img_width)
+    new_y2 = min(new_y2, img_height)
+    
+    return [new_x1, new_y1, new_x2, new_y2, conf, label]
+
 def build_transform(input_size):
     IMAGENET_MEAN = (0.485, 0.456, 0.406)
     IMAGENET_STD = (0.229, 0.224, 0.225)
@@ -305,6 +342,7 @@ def build_transform(input_size):
         T.Normalize(mean=MEAN, std=STD)
     ])
     return transform
+
 
 def find_closest_aspect_ratio(aspect_ratio, target_ratios, width, height, image_size):
     best_ratio_diff = float('inf')
@@ -320,6 +358,7 @@ def find_closest_aspect_ratio(aspect_ratio, target_ratios, width, height, image_
             if area > 0.5 * image_size * image_size * ratio[0] * ratio[1]:
                 best_ratio = ratio
     return best_ratio
+
 
 def dynamic_preprocess(image, min_num=1, max_num=6, image_size=448, use_thumbnail=False):
     orig_width, orig_height = image.size
@@ -359,187 +398,110 @@ def dynamic_preprocess(image, min_num=1, max_num=6, image_size=448, use_thumbnai
         processed_images.append(thumbnail_img)
     return processed_images
 
-def make_square_bbox(bbox, img, extend_ratio = 1.5):
-    label, x1, y1, x2, y2, conf = bbox
-    img_height, img_width = img.shape[:2]
-
-    # Calculate width, height, and maximum side length
-    width = x2 - x1
-    height = y2 - y1
-
-    if (img_width < width * extend_ratio) or (img_height < height * extend_ratio):
-        extend_ratio = 3
-
-    max_side = max(width, height) * extend_ratio  # Increase by 1.3 times
-    
-    # Calculate the center of the bounding box
-    center_x = (x1 + x2) / 2
-    center_y = (y1 + y2) / 2
-    
-    # Calculate new coordinates
-    new_x1 = center_x - max_side / 2
-    new_y1 = center_y - max_side / 2
-    new_x2 = center_x + max_side / 2
-    new_y2 = center_y + max_side / 2
-    
-    # Ensure the new coordinates are within image boundaries
-    new_x1 = max(new_x1, 0)
-    new_y1 = max(new_y1, 0)
-    new_x2 = min(new_x2, img_width)
-    new_y2 = min(new_y2, img_height)
-    
-    return [new_x1, new_y1, new_x2, new_y2, conf, label]
-
-def check_LLM(model, tokenizer, img_buffer, label):
-    generation_config = dict(num_beams=5,
-                            max_new_tokens=1024,
-                            do_sample=False,
-                            )
-    
-    # question =  "Do you detect person in this image? You Anwser only Yes or No"
-
-    
-    
+def check_LLM(model, tokenizer, img_buffer, label, verbose = False):
     final_label = []
     transform = build_transform(input_size=448)
 
-    for i, img in enumerate(img_buffer):
-        bboxes = label[i]
-
-        new_label = []
-
-        for cls, x1, y1, x2, y2, score in bboxes:
-
-            new_x1, new_y1, new_x2, new_y2, score, cls = make_square_bbox([cls, x1, y1, x2, y2, score], img)
-            
-            cropped_img = img[int(new_y1) : int(new_y2), int(new_x1) : int(new_x2)]
-            pil_img = Image.fromarray(cropped_img.astype('uint8'), 'RGB')
-            images = dynamic_preprocess(pil_img, image_size=448, use_thumbnail=True, max_num=1)
-            pixel_values = [transform(image) for image in images]
-            pixel_values = torch.stack(pixel_values).to(torch.bfloat16).cuda()
-
-            # question =  "Do you detect entire person in this image? You Anwser only Yes or No"
-            # question = "You will be shown a candidate image of a person captured on CCTV. If you see a shape of a entire person in the image, answer yes. If there is no person, answer no."
-            question = "<image>\nIf you see a person or people in the image?"
-
-            response = model.chat(tokenizer, pixel_values, question, generation_config).lower()
-
-            cv2.imshow("1", cropped_img)
-            print(response)
-            cv2.waitKey(0)
-            
-            # if response == "Yes":
-            if "yes" in response:
-             
-                new_label.append([cls, x1, y1, x2, y2, score])
-
-            else:
-                cropped_img = img[int(y1) : int(y2), int(x1) : int(x2)]
-
-                # cropped_img = img[int(new_y1) : int(new_y2), int(new_x1) : int(new_x2)]
-
-                pil_img = Image.fromarray(cropped_img.astype('uint8'), 'RGB')
-                images = dynamic_preprocess(pil_img, image_size=448, use_thumbnail=True, max_num=1)
-                pixel_values = [transform(image) for image in images]
-                pixel_values = torch.stack(pixel_values).to(torch.bfloat16).cuda()
-
-                question =  "Do you detect person in this image? You Anwser only Yes or No"
-                # question = "You will be shown a candidate image of a person captured on CCTV. If you see a shape of a person in the image, answer yes. If there is no person, answer no."
-                question = "<image>\nDo you detect person in this image?"
-
-                response = model.chat(tokenizer, pixel_values, question, generation_config).lower()
-
-                cv2.imshow("1", cropped_img)
-                print(response)
-                cv2.waitKey(0)
-
-                if "yes" in response:
-                    new_label.append([cls, x1, y1, x2, y2, score])
-
-
-        final_label.append(new_label)
-
-
-
-    return final_label
-
-
-
-def check_LLM_test(model, tokenizer, img_buffer, label):
-    generation_config = dict(num_beams=5,
-                            max_new_tokens=1,
+    generation_config_1 = dict(num_beams=1,
+                            max_new_tokens=512,
                             do_sample=False,
                             )
     
-    final_label = []
-    for i, img in enumerate(img_buffer):
+    generation_config_2 = dict(num_beams=1,
+                            max_new_tokens=32,
+                            do_sample=False,
+                            )
+    
+    for i in tqdm(range(len(img_buffer)), desc="Processing Image", leave=False):
+        img = img_buffer[i]
         bboxes = label[i]
-
         new_label = []
+        res_2 = None
 
         for cls, x1, y1, x2, y2, score in bboxes:
+            extend_x1, extend_y1, extend_x2, extend_y2, score, cls = make_square_bbox([cls, x1, y1, x2, y2, score], img, extend_ratio=10)
+            cropped_img_extend = img[int(extend_y1) : int(extend_y2), int(extend_x1) : int(extend_x2)]
+            pil_img = Image.fromarray(cropped_img_extend).convert('RGB')
+            images = dynamic_preprocess(pil_img, image_size=448, use_thumbnail=True, max_num=6)
+            pixel_values_2 = [transform(image) for image in images]
+            pixel_values_2 = torch.stack(pixel_values_2).to(torch.bfloat16).cuda()
 
-            new_x1, new_y1, new_x2, new_y2, score, cls = make_square_bbox([cls, x1, y1, x2, y2, score], img)
-            
+            # pixel_values = torch.cat((pixel_values_1, pixel_values_2), dim=0)
+            # pixel_values = pixel_values_2
+            question = '<image>\nPlease describe the image in detail?'
+
+            res_main, history = model.chat(tokenizer, pixel_values_2, question, generation_config_1, history=None, return_history=True)
+
+
+            new_x1, new_y1, new_x2, new_y2, score, cls = make_square_bbox([cls, x1, y1, x2, y2, score], img, extend_ratio = 1.2)
             cropped_img = img[int(new_y1) : int(new_y2), int(new_x1) : int(new_x2)]
-            pil_img = Image.fromarray(cropped_img.astype('uint8'), 'RGB')
+            # pil_img = Image.fromarray(cropped_img.astype('uint8'), 'RGB')
+            pil_img = Image.fromarray(cropped_img).convert('RGB')
+            images = dynamic_preprocess(pil_img, image_size=448, use_thumbnail=True, max_num=6)
+            pixel_values_1 = [transform(image) for image in images]
+            pixel_values_1 = torch.stack(pixel_values_1).to(torch.bfloat16).cuda()
 
-            input_img = model.vis_processor(pil_img).unsqueeze(0).to("cuda:0")
+            # question = "<image>\nDo you see entire person in this images?"
+            # question = "<image>\nDo you see the whole person in the center of this image?"
+            question = "<image>\nDo you see the whole human in the this image?"
 
-            # text =  "<ImageHere>Do you detect entire person in this image? You Anwser Yes or No"
-            # text =  "<ImageHere>Do you detect entire person in this image?"
+            res = model.chat(tokenizer, pixel_values_1, question, generation_config_2, history=history, return_history=False)
 
-            query = "Do you detect entire person in this image?"
+            del pixel_values_1, pixel_values_2
+            res_1 = res.lower()
 
-            with torch.autocast(device_type='cuda', dtype=torch.float16):
-                response, his = model.chat(tokenizer, query, input_img, do_sample=False, num_beams=3, use_meta=True)
-            print(response)
-
-            # with torch.cuda.amp.autocast():
-            #     response, _ = model.chat(tokenizer, query=text, image=input_img, history=[], do_sample=False, max_new_tokens = 100)
-
-            # cv2.imshow("1", cropped_img)
-            # print(response)
-
-            # cv2.waitKey(0)
-            
-            # if response == "Yes":
-            if "Yes" in response.split(" ") or "Yes," in response.split(" "):
+            if "yes" in res and "no" not in res_1.split(" "):
                 new_label.append([cls, x1, y1, x2, y2, score])
+                # print("ADD person bbox")
 
             else:
                 cropped_img = img[int(y1) : int(y2), int(x1) : int(x2)]
+                # cropped_img = img[int(new_y1) : int(new_y2), int(new_x1) : int(new_x2)]
+
                 pil_img = Image.fromarray(cropped_img.astype('uint8'), 'RGB')
-                input_img = model.vis_processor(pil_img).unsqueeze(0).to("cuda:0")
+                images = dynamic_preprocess(pil_img, image_size=448, use_thumbnail=True, max_num=6)
+                pixel_values_3 = [transform(image) for image in images]
+                pixel_values_3 = torch.stack(pixel_values_3).to(torch.bfloat16).cuda()
 
-                # text =  "<ImageHere>Do you detect person in this image? You Anwser Yes or No"
-                # # text =  "<ImageHere>Do you detect person in this image?"
+                # pixel_values_3 = torch.cat((pixel_values_3, pixel_values_2), dim=0)
+                # question = "<image>\nDo you detect person in this image center? ignore people visible in the background."
+                
+                # question = "<image>\nThis is an image of an assumed person. When you look at it, do you think it's really a person?"
+                question = "<image>\nDo you see human in this image?"
+                # question = "<image>\nDo you see person in the center of this image?"
 
 
-                # with torch.cuda.amp.autocast():
-                #     response, _ = model.chat(tokenizer, query=text, image=input_img, history=[], do_sample=False, max_new_tokens = 100)
+                res = model.chat(tokenizer, pixel_values_3, question, generation_config_2, history=history, return_history=False)
 
-                query = "Do you detect person in this image?"
+                res_2 = res.lower()
+                del pixel_values_3
+                if "yes" in res and "no" not in res_2.split(" "):
+                    new_label.append([cls, x1, y1, x2, y2, score])
+                    # print("ADD person bbox")
 
-                with torch.autocast(device_type='cuda', dtype=torch.float16):
-                    response, his = model.chat(tokenizer, query, input_img, do_sample=False, num_beams=3, use_meta=True)
-                # cv2.imshow("1", cropped_img)
-                print(response)
+            if verbose:
+                test_img = img.copy()
+                # cv2.imshow(f"cropped_img_extend", cropped_img_extend)
+                cv2.rectangle(test_img, (int(extend_x1), int(extend_y1)), (int(extend_x2), int(extend_y2)), (0,0,255), thickness=2, lineType=cv2.LINE_AA)
+                cv2.rectangle(test_img, (int(new_x1), int(new_y1)), (int(new_x2), int(new_y2)), (0,255,0), thickness=2, lineType=cv2.LINE_AA)
+                
+                cv2.imshow(f"example", test_img)
+
+                print("-----------------------")
+                print("question 1 : ",res_main)
+                print("question 2 : ",res_1)
+                if res_2 is not None:
+                    print("question 3 : ",res_2)
 
                 # cv2.waitKey(0)
+                cv2.waitKey(1)
 
-                # if "Yes" in response.split(" "):
-                if "Yes" in response.split(" ") or "Yes," in response.split(" "):
-
-                    new_label.append([cls, x1, y1, x2, y2, score])
-
+                # cv2.destroyAllWindows()
 
         final_label.append(new_label)
-
-
+    
 
     return final_label
-
 
 def get_zero_shot_label(processor, model, device, buffer):
     total_label = []
@@ -573,9 +535,7 @@ def get_zero_shot_label(processor, model, device, buffer):
             if results[0]["labels"][i] == "person":
                 label_list.append([0] + boxes + [results[0]["scores"][i]])
 
-
         total_label.append(label_list)
-
 
     return total_label
 
