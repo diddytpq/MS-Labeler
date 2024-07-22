@@ -6,6 +6,7 @@ import numpy as np
 from PIL import Image
 import torchvision.transforms as T
 from torchvision.transforms.functional import InterpolationMode
+from tqdm import tqdm
 
 class Colors:
     # Ultralytics color palette https://ultralytics.com/
