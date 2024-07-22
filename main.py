@@ -333,6 +333,8 @@ for camera_name in tqdm(camera_name_list, desc="Processing Cameras") :
                 
 dataset_path = os.path.join("./", "dataset")
 create_dataset_list(dataset_path)
+
+yolo_weight_path = "./weights/yolo/ms-ai2401-finetune.pt"
 train_model(yolo_weight_path = yolo_weight_path)
 
 cv2.destroyAllWindows()
