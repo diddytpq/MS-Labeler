@@ -29,6 +29,8 @@ camera_name_list = os.listdir(camera_list_path)
 yolo_weight_path = os.path.join(os.getcwd(), "weights", "yolo", "ms-ai2407-finetune_M.pt")
 
 for camera_name in tqdm(camera_name_list, desc="Processing Cameras") :
+    if len(camera_name.split(".")) > 1:
+        continue
     date_list_path = os.path.join(camera_list_path, camera_name)
     date_list = os.listdir(date_list_path)
 
