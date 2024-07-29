@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 import cv2
 import torch
-from utils import check_LLM, get_yolo_label, get_zero_shot_label, save_final_dataset, plot_one_box, get_img_buffer, nms_test, create_dataset_list, train_model
+from utils import check_LLM, get_yolo_label, get_zero_shot_label, save_final_dataset, plot_one_box, get_img_buffer, nms_test, create_dataset_list, train_model, merge_overlapping_boxes
 
 import numpy as np
 from PIL import Image
@@ -61,7 +61,6 @@ for camera_name in tqdm(camera_name_list, desc="Processing Cameras") :
                 yolo_label_data = get_yolo_label(model = yolo_model, buffer = img_buffer)
                 zeroshot_label_data = get_zero_shot_label(model = zero_shot_ob_model, buffer = img_buffer, processor = processor, device = device)
 
-
                 non_llm_input_bboxes = []
                 llm_input_bboxes = []
 
@@ -97,10 +96,14 @@ for camera_name in tqdm(camera_name_list, desc="Processing Cameras") :
                                             label = llm_input_bboxes,
                                             verbose = False
                                             )
-                final_bboxes_list = []
+                bboxes_list = []
 
                 for i in range(len(img_buffer)):
-                    final_bboxes_list.append(non_llm_input_bboxes[i] + LLM_label[i])
+                    bboxes_list.append(non_llm_input_bboxes[i] + LLM_label[i])
+
+                final_bboxes_list = []
+                for bbox_list in bboxes_list:
+                    final_bboxes_list.append(merge_overlapping_boxes(bbox_list, iou_threshold = 0.5)) 
 
                 del llm_model
                 del tokenizer
@@ -150,7 +153,6 @@ for camera_name in tqdm(camera_name_list, desc="Processing Cameras") :
 
                         #     if key == 27 : break
 
-                
                 save_final_dataset(video_name = video_name,
                                    date = date,
                                    img_buffer = img_buffer, 

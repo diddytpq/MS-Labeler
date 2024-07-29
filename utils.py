@@ -294,12 +294,6 @@ def get_Florence_label(model, processor, buffer, device):
 
     return total_label
 
-
-
-
-
-
-
 def make_square_bbox(bbox, img, extend_ratio = 1.5):
     label, x1, y1, x2, y2, conf = bbox
     img_height, img_width = img.shape[:2]
@@ -444,7 +438,9 @@ def check_LLM(model, tokenizer, img_buffer, label, verbose = False):
 
             # question = "<image>\nDo you see entire person in this images?"
             # question = "<image>\nDo you see the whole person in the center of this image?"
-            question = "<image>\nDo you see the whole human in the this image?"
+            # question = "<image>\nDo you see the whole human in the this image?"
+            question = "<image>\nDo you see the whole person in the this image?"
+
 
             res = model.chat(tokenizer, pixel_values_1, question, generation_config_2, history=history, return_history=False)
 
@@ -468,15 +464,14 @@ def check_LLM(model, tokenizer, img_buffer, label, verbose = False):
                 # question = "<image>\nDo you detect person in this image center? ignore people visible in the background."
                 
                 # question = "<image>\nThis is an image of an assumed person. When you look at it, do you think it's really a person?"
-                question = "<image>\nDo you see human in this image?"
-                # question = "<image>\nDo you see person in the center of this image?"
-
+                # question = "<image>\nDo you see human in this image?"
+                question = "<image>\nDo you see person in this image?"
 
                 res = model.chat(tokenizer, pixel_values_3, question, generation_config_2, history=history, return_history=False)
 
                 res_2 = res.lower()
                 del pixel_values_3
-                if "yes" in res and "no" not in res_2.split(" "):
+                if "yes" in res_2 and "no" not in res_2.split(" "):
                     new_label.append([cls, x1, y1, x2, y2, score])
                     # print("ADD person bbox")
 
@@ -512,11 +507,11 @@ def get_zero_shot_label(processor, model, device, buffer):
 
         # text = "person. car. dog. cat. bus. truck. pet."
         text = "person. car. dog. cat. tree."
+        # text = "human. car. dog. cat. tree."
 
         pil_img = Image.fromarray(img.astype('uint8'), 'RGB')
 
         inputs = processor(images=pil_img, text=text, return_tensors="pt").to(device)
-
 
         with torch.no_grad():
             outputs = model(**inputs)
@@ -525,7 +520,8 @@ def get_zero_shot_label(processor, model, device, buffer):
                 outputs,
                 inputs.input_ids,
                 box_threshold=0.1,
-                text_threshold=0.55,
+                # text_threshold=0.55,
+                text_threshold=0.60,
                 target_sizes=[pil_img.size[::-1]]
             )
 
@@ -535,6 +531,8 @@ def get_zero_shot_label(processor, model, device, buffer):
         for i, boxes in enumerate(results[0]["boxes"].tolist()):
             if results[0]["labels"][i] == "person":
                 label_list.append([0] + boxes + [results[0]["scores"][i]])
+
+            label_list = merge_overlapping_boxes(label_list, iou_threshold = 0.5)
 
         total_label.append(label_list)
 
@@ -553,7 +551,7 @@ def train_model(yolo_weight_path):
 
     model = YOLO(yolo_weight_path)
     results = model.train(data='./cfg/main.yaml',
-                          project = "./train/weights",
+                          project = "./train",
                           name = f"last",
                             exist_ok = True,
                             epochs = 10,
@@ -609,3 +607,58 @@ def create_dataset_list(dataset_path):
         with open("./dataset/val.txt", "w") as f:
             f.write(val_txt)
     
+
+
+def iou_2(box1, box2):
+    x1_min, y1_min, x1_max, y1_max = box1[1:5]
+    x2_min, y2_min, x2_max, y2_max = box2[1:5]
+
+    inter_x_min = max(x1_min, x2_min)
+    inter_x_max = min(x1_max, x2_max)
+    inter_y_min = max(y1_min, y2_min)
+    inter_y_max = min(y1_max, y2_max)
+
+    if inter_x_min < inter_x_max and inter_y_min < inter_y_max:
+        inter_area = (inter_x_max - inter_x_min) * (inter_y_max - inter_y_min)
+        box1_area = (x1_max - x1_min) * (y1_max - y1_min)
+        box2_area = (x2_max - x2_min) * (y2_max - y2_min)
+        union_area = box1_area + box2_area - inter_area
+        return inter_area / union_area
+    else:
+        return 0.0
+
+def merge_boxes_2(box1, box2):
+    x1_min, y1_min, x1_max, y1_max = box1[1:5]
+    x2_min, y2_min, x2_max, y2_max = box2[1:5]
+
+    new_x_min = min(x1_min, x2_min)
+    new_y_min = min(y1_min, y2_min)
+    new_x_max = max(x1_max, x2_max)
+    new_y_max = max(y1_max, y2_max)
+    new_conf = max(box1[5], box2[5])
+
+    return [box1[0], new_x_min, new_y_min, new_x_max, new_y_max, new_conf]
+
+def merge_overlapping_boxes(boxes, iou_threshold):
+    if len(boxes) == 0:
+        return []
+
+    merged_boxes = []
+    while boxes:
+        box = boxes.pop(0)
+        to_merge = [box]
+        for other_box in boxes[:]:
+            if iou_2(box, other_box) >= iou_threshold:
+                to_merge.append(other_box)
+                boxes.remove(other_box)
+
+        # Merge all to_merge boxes
+        while len(to_merge) > 1:
+            box1 = to_merge.pop(0)
+            box2 = to_merge.pop(0)
+            merged_box = merge_boxes_2(box1, box2)
+            to_merge.append(merged_box)
+
+        merged_boxes.append(to_merge[0])
+
+    return merged_boxes

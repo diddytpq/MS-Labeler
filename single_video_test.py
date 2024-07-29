@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 import cv2
 import torch
-from utils import check_LLM, make_square_bbox, get_yolo_label, get_zero_shot_label, nms, plot_one_box, get_img_buffer, nms_test, create_dataset_list, save_final_dataset, train_model
+from utils import check_LLM, make_square_bbox, get_yolo_label, get_zero_shot_label, nms, plot_one_box, get_img_buffer, nms_test, create_dataset_list, save_final_dataset, train_model, merge_overlapping_boxes
 
 import numpy as np
 
@@ -27,11 +27,13 @@ device = "cuda:0" if torch.cuda.is_available() else "cpu"
 video_list_path = os.path.join(os.getcwd(), "videos")
 video_name_list = os.listdir(video_list_path)
 yolo_weight_path = os.path.join(os.getcwd(), "weights", "yolo", "ms-ai2407-finetune_M.pt")
+# yolo_weight_path = os.path.join(os.getcwd(), "train", "weights", "last", "weights", "last.pt")
+
 
 with torch.no_grad():
     for video_name in video_name_list:
         camera_name = "test"
-        video_name = "camera_7_edit.mp4"
+        video_name = "13.06.13_침입.mp4"
 
         yolo_model = YOLO(yolo_weight_path)  # load a pretrained model (recommended for training)\
 
@@ -65,7 +67,7 @@ with torch.no_grad():
             all_boxes = yolo_label_data[i] + zeroshot_label_data[i]
 
             # nms_boxes = nms(all_boxes, iou_threshold=0.9)
-            nms_boxes, non_nms_boxes = nms_test(yolo_label_data[i], zeroshot_label_data[i], iou_threshold=0.8)
+            nms_boxes, non_nms_boxes = nms_test(yolo_label_data[i], zeroshot_label_data[i], iou_threshold=0.6)
 
             
             nms_boxes_original_format = [[0, box[0], box[1], box[2] - box[0], box[3] - box[1], box[4]] for box in nms_boxes]
@@ -91,12 +93,16 @@ with torch.no_grad():
                                     tokenizer = tokenizer,
                                     img_buffer = img_buffer,
                                     label = llm_input_bboxes,
-                                    verbose = False
+                                    verbose = True
                                     )
-        final_bboxes_list = []
+        bboxes_list = []
 
         for i in range(len(img_buffer)):
-            final_bboxes_list.append(non_llm_input_bboxes[i] + LLM_label[i])
+            bboxes_list.append(non_llm_input_bboxes[i] + LLM_label[i])
+
+        final_bboxes_list = []
+        for bbox_list in bboxes_list:
+            final_bboxes_list.append(merge_overlapping_boxes(bbox_list, iou_threshold = 0.5)) 
 
         del llm_model
         del tokenizer
@@ -147,7 +153,8 @@ with torch.no_grad():
 
                 #     if key == 27 : break
 
-        
+            print(final_bboxes_list)
+            
             # save_final_dataset(video_name = video_name,
             #                     date = "test",
             #                     img_buffer = img_buffer, 
