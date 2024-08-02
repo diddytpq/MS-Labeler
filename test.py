@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 import cv2
 import torch
-from utils import make_square_bbox, get_yolo_label, get_zero_shot_label, nms, plot_one_box, get_img_buffer, nms_test, create_dataset_list, save_final_dataset, train_model
+from utils import make_square_bbox, get_yolo_label, get_zero_shot_label, nms, plot_one_box, get_img_buffer, nms_test, create_dataset_list, save_final_dataset, train_model, merge_overlapping_boxes
 
 import numpy as np
 
@@ -199,7 +199,7 @@ device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
 video_list_path = os.path.join(os.getcwd(), "videos")
 video_name_list = os.listdir(video_list_path)
-yolo_weight_path = os.path.join(os.getcwd(), "weights", "yolo", "ms-ai2407-finetune_M.pt")
+yolo_weight_path = os.path.join(os.getcwd(), "weights", "yolo", "ms-ai_24-07-30-M.pt")
 
 with torch.no_grad():
     for video_name in video_name_list:
@@ -221,15 +221,23 @@ with torch.no_grad():
             img_save_path = f"./results/{video_name}/"
             os.makedirs(img_save_path, exist_ok=True)
 
-        img_buffer = get_img_buffer(video_path = os.path.join(video_list_path, camera_name, video_name))
-        # img_buffer = [cv2.imread("./a.png"), cv2.imread("./b.png"),cv2.imread("./c.png"),cv2.imread("./d.png"),cv2.imread("./e.png"),cv2.imread("./f.png"),cv2.imread("./g.png")]
+        # img_buffer = get_img_buffer(video_path = os.path.join(video_list_path, camera_name, video_name))
+        img_buffer = [cv2.imread("./images/13.14.22_침입_0000.png"), 
+                      cv2.imread("./images/13.14.22_침입_0001.png"),
+                      cv2.imread("./images/13.14.22_침입_0002.png"),
+                      cv2.imread("./images/13.14.22_침입_0003.png"),
+                      cv2.imread("./images/13.14.22_침입_0004.png"),
+                      cv2.imread("./images/13.14.22_침입_0005.png"),
+                      cv2.imread("./images/13.14.22_침입_0006.png"),
+                      cv2.imread("./images/13.14.22_침입_0007.png"),
+                      cv2.imread("./images/13.14.22_침입_0008.png"),
+                      cv2.imread("./images/13.14.22_침입_0009.png"),
+                      ]
+                      
         # img_buffer = [cv2.imread("./Screenshot from 2024-07-10 16-09-51.png")]
 
         yolo_label_data = get_yolo_label(model = yolo_model, buffer = img_buffer)
         zeroshot_label_data = get_zero_shot_label(model = zero_shot_ob_model, buffer = img_buffer, processor = processor, device = device)
-
-        print(len(img_buffer))
-
 
         non_llm_input_bboxes = []
         llm_input_bboxes = []
@@ -266,10 +274,14 @@ with torch.no_grad():
                                     label = llm_input_bboxes,
                                     verbose = False
                                     )
-        final_bboxes_list = []
+        bboxes_list = []
 
         for i in range(len(img_buffer)):
-            final_bboxes_list.append(non_llm_input_bboxes[i] + LLM_label[i])
+            bboxes_list.append(non_llm_input_bboxes[i] + LLM_label[i])
+
+        final_bboxes_list = []
+        for bbox_list in bboxes_list:
+            final_bboxes_list.append(merge_overlapping_boxes(bbox_list, iou_threshold = 0.5)) 
 
         del llm_model
         del tokenizer

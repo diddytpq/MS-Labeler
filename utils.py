@@ -7,6 +7,7 @@ from PIL import Image
 import torchvision.transforms as T
 from torchvision.transforms.functional import InterpolationMode
 from tqdm import tqdm
+import time
 
 class Colors:
     # Ultralytics color palette https://ultralytics.com/
@@ -152,17 +153,16 @@ def get_img_buffer(video_path):
     ret, img = cap.read()
     frame_num = 1
 
-    img_buffer = []
+    img_buffer_ori = []
 
     while ret:
         ret, img = cap.read()
         frame_num += 1
-        if frame_num % 30 == 0:
-            img_buffer.append(img)
 
+        if ret and frame_num % 30 == 0:
+            img_buffer_ori.append(img)
 
-
-    return img_buffer
+    return img_buffer_ori
 
 
 def save_final_dataset(video_name, date, img_buffer, label, img_save_dir, label_save_dir):
@@ -174,7 +174,8 @@ def save_final_dataset(video_name, date, img_buffer, label, img_save_dir, label_
     for i in range(len(img_buffer)):
         label_txt = ""
 
-        cv2.imwrite(f"{img_save_dir}/{date}_{video_name}_{str(0) * (4 - len(str(i)))}{i}.png", img_buffer[i])
+        # cv2.imwrite(f"{img_save_dir}/{date}_{video_name}_{str(0) * (4 - len(str(i)))}{i}.jpg", img_buffer[i])
+        cv2.imwrite(f"{img_save_dir}/{i}.jpg", img_buffer[i])
 
         width, heigth = img_buffer[i].shape[1], img_buffer[i].shape[0]
 
@@ -193,22 +194,27 @@ def save_final_dataset(video_name, date, img_buffer, label, img_save_dir, label_
             label_txt += f"{cls} {ncx} {ncy} {w} {h}\n"
 
         if len(label_txt) > 0:
-            label_name = f"{label_save_dir}/{date}_{video_name}_{str(0) * (4 - len(str(i)))}{i}.txt"
+            # label_name = f"{label_save_dir}/{date}_{video_name}_{str(0) * (4 - len(str(i)))}{i}.txt"
+            label_name = f"{label_save_dir}/{i}.txt"
+
             with open(label_name, "w") as f:
                 f.write(label_txt)
         
 
 def get_yolo_label(model, buffer):
     total_label = []
-    for img in buffer:
+    for i, img in enumerate(buffer):
         label = []
 
+        # if i % 3 == 0 :
         heigth, width = img.shape[0], img.shape[1]
 
         pred = model(img, 
-                     imgsz = 640, 
-                     conf = 0.33, 
-                     verbose=False)
+                    imgsz = 640, 
+                    conf = 0.22, 
+                    iou = 0.5, 
+
+                    verbose=False)
 
         boxes = pred[0].boxes.data.cpu().numpy().astype(float)
 
@@ -398,12 +404,12 @@ def check_LLM(model, tokenizer, img_buffer, label, verbose = False):
     transform = build_transform(input_size=448)
 
     generation_config_1 = dict(num_beams=1,
-                            max_new_tokens=512,
+                            max_new_tokens=16,
                             do_sample=False,
                             )
     
     generation_config_2 = dict(num_beams=1,
-                            max_new_tokens=32,
+                            max_new_tokens=1,
                             do_sample=False,
                             )
     
@@ -411,9 +417,23 @@ def check_LLM(model, tokenizer, img_buffer, label, verbose = False):
         img = img_buffer[i]
         bboxes = label[i]
         new_label = []
-        res_2 = None
+
+        # pil_img = Image.fromarray(img).convert('RGB')
+        # images = dynamic_preprocess(pil_img, image_size=448, use_thumbnail=True, max_num=6)
+        # pixel_values_2 = [transform(image) for image in images]
+        # pixel_values_2 = torch.stack(pixel_values_2).to(torch.bfloat16).cuda()
+
+        # # pixel_values = torch.cat((pixel_values_1, pixel_values_2), dim=0)
+        # # pixel_values = pixel_values_2
+        # question = '<image>\nPlease describe the image in detail.'
+        # # question = '<image>\Please describe the image.'
+
+        # res_main, history = model.chat(tokenizer, pixel_values_2, question, generation_config_1, history=None, return_history=True)
 
         for cls, x1, y1, x2, y2, score in bboxes:
+            res_2 = None
+
+            t1 = time.time()
             extend_x1, extend_y1, extend_x2, extend_y2, score, cls = make_square_bbox([cls, x1, y1, x2, y2, score], img, extend_ratio=10)
             cropped_img_extend = img[int(extend_y1) : int(extend_y2), int(extend_x1) : int(extend_x2)]
             pil_img = Image.fromarray(cropped_img_extend).convert('RGB')
@@ -423,14 +443,17 @@ def check_LLM(model, tokenizer, img_buffer, label, verbose = False):
 
             # pixel_values = torch.cat((pixel_values_1, pixel_values_2), dim=0)
             # pixel_values = pixel_values_2
-            question = '<image>\nPlease describe the image in detail?'
+            # question = '<image>\nPlease describe the image in detail.'
+            question = '<image>\Please describe the image.'
 
             res_main, history = model.chat(tokenizer, pixel_values_2, question, generation_config_1, history=None, return_history=True)
 
 
             new_x1, new_y1, new_x2, new_y2, score, cls = make_square_bbox([cls, x1, y1, x2, y2, score], img, extend_ratio = 1.2)
             cropped_img = img[int(new_y1) : int(new_y2), int(new_x1) : int(new_x2)]
-            # pil_img = Image.fromarray(cropped_img.astype('uint8'), 'RGB')
+
+            # cropped_img = img[int(y1) : int(y2), int(x1) : int(x2)]
+
             pil_img = Image.fromarray(cropped_img).convert('RGB')
             images = dynamic_preprocess(pil_img, image_size=448, use_thumbnail=True, max_num=6)
             pixel_values_1 = [transform(image) for image in images]
@@ -438,53 +461,77 @@ def check_LLM(model, tokenizer, img_buffer, label, verbose = False):
 
             # question = "<image>\nDo you see entire person in this images?"
             # question = "<image>\nDo you see the whole person in the center of this image?"
-            # question = "<image>\nDo you see the whole human in the this image?"
-            question = "<image>\nDo you see the whole person in the this image?"
+            # question = "<image>\nDo you see the whole person in the this image?"
+            # question = "<image>\nDo you see the person in the this image?"
+            question = "<image>\nDo you see person in this image?"
 
 
             res = model.chat(tokenizer, pixel_values_1, question, generation_config_2, history=history, return_history=False)
+            # res, history = model.chat(tokenizer, pixel_values_1, question, generation_config_2, history=history, return_history=True)
+
+            # res = model.chat(tokenizer, pixel_values_1, question, generation_config_2, return_history=False)
+
+            # question = 'Image-1: <image>\nImage-2: <image>\nReferring to the first image, answer yes or no whether the second image is a person or not.'
+
+            # pixel_values = torch.cat((pixel_values_2, pixel_values_1), dim=0)
+            # num_patches_list = [pixel_values_2.size(0), pixel_values_1.size(0)]
+            # res, history = model.chat(tokenizer, pixel_values, question, generation_config_2,
+            #                                 num_patches_list=num_patches_list,
+            #                                 history=None, return_history=True)
 
             del pixel_values_1, pixel_values_2
+            # del pixel_values_1
+
             res_1 = res.lower()
 
-            if "yes" in res and "no" not in res_1.split(" "):
+            # if "yes" in res_1 and "no" not in res_1.split(" "):
+            if "yes" in res_1:
+
                 new_label.append([cls, x1, y1, x2, y2, score])
-                # print("ADD person bbox")
+                print("ADD person bbox")
 
-            else:
-                cropped_img = img[int(y1) : int(y2), int(x1) : int(x2)]
-                # cropped_img = img[int(new_y1) : int(new_y2), int(new_x1) : int(new_x2)]
+            # else:
+            #     cropped_img = img[int(y1) : int(y2), int(x1) : int(x2)]
+            #     # cropped_img = img[int(new_y1) : int(new_y2), int(new_x1) : int(new_x2)]
 
-                pil_img = Image.fromarray(cropped_img.astype('uint8'), 'RGB')
-                images = dynamic_preprocess(pil_img, image_size=448, use_thumbnail=True, max_num=6)
-                pixel_values_3 = [transform(image) for image in images]
-                pixel_values_3 = torch.stack(pixel_values_3).to(torch.bfloat16).cuda()
+            #     pil_img = Image.fromarray(cropped_img.astype('uint8'), 'RGB')
+            #     images = dynamic_preprocess(pil_img, image_size=448, use_thumbnail=True, max_num=6)
+            #     pixel_values_3 = [transform(image) for image in images]
+            #     pixel_values_3 = torch.stack(pixel_values_3).to(torch.bfloat16).cuda()
 
-                # pixel_values_3 = torch.cat((pixel_values_3, pixel_values_2), dim=0)
-                # question = "<image>\nDo you detect person in this image center? ignore people visible in the background."
+            #     # pixel_values_3 = torch.cat((pixel_values_3, pixel_values_2), dim=0)
+            #     # question = "<image>\nDo you detect person in this image center? ignore people visible in the background."
                 
-                # question = "<image>\nThis is an image of an assumed person. When you look at it, do you think it's really a person?"
-                # question = "<image>\nDo you see human in this image?"
-                question = "<image>\nDo you see person in this image?"
+            #     # question = "<image>\nThis is an image of an assumed person. When you look at it, do you think it's really a person?"
+            #     # question = "<image>\nDo you see human in this image?"
+            #     question = "<image>\nDo you see person in this image?"
+            #     # question = "<image>\nIs there a person in the image?"
 
-                res = model.chat(tokenizer, pixel_values_3, question, generation_config_2, history=history, return_history=False)
+            #     res = model.chat(tokenizer, pixel_values_3, question, generation_config_2, history=history, return_history=False)
+            #     # res = model.chat(tokenizer, pixel_values_3, question, generation_config_2, return_history=False)
 
-                res_2 = res.lower()
-                del pixel_values_3
-                if "yes" in res_2 and "no" not in res_2.split(" "):
-                    new_label.append([cls, x1, y1, x2, y2, score])
-                    # print("ADD person bbox")
+            #     res_2 = res.lower()
+            #     del pixel_values_3
+
+            #     # if "yes" in res_2 and "no" not in res_2.split(" "):
+            #     if "yes" in res_2:
+
+            #         new_label.append([cls, x1, y1, x2, y2, score])
+            #         print("ADD person bbox")
 
             if verbose:
+
                 test_img = img.copy()
                 # cv2.imshow(f"cropped_img_extend", cropped_img_extend)
                 cv2.rectangle(test_img, (int(extend_x1), int(extend_y1)), (int(extend_x2), int(extend_y2)), (0,0,255), thickness=2, lineType=cv2.LINE_AA)
-                cv2.rectangle(test_img, (int(new_x1), int(new_y1)), (int(new_x2), int(new_y2)), (0,255,0), thickness=2, lineType=cv2.LINE_AA)
+                cv2.rectangle(test_img, (int(new_x1), int(new_y1)), (int(new_x2), int(new_y2)), (255,0,0), thickness=2, lineType=cv2.LINE_AA)
+                cv2.rectangle(test_img, (int(x1), int(y1)), (int(x2), int(y2)), (0,255,0), thickness=2, lineType=cv2.LINE_AA)
                 
                 cv2.imshow(f"example", test_img)
 
                 print("-----------------------")
-                print("question 1 : ",res_main)
+                print(time.time() - t1)
+                # print("question 1 : ",res_main)
                 print("question 2 : ",res_1)
                 if res_2 is not None:
                     print("question 3 : ",res_2)
@@ -494,15 +541,16 @@ def check_LLM(model, tokenizer, img_buffer, label, verbose = False):
 
                 # cv2.destroyAllWindows()
 
-        final_label.append(new_label)
+        # final_label.append(new_label)
+        label[i] = new_label
     
 
-    return final_label
+    return label
 
 def get_zero_shot_label(processor, model, device, buffer):
     total_label = []
 
-    for img in buffer:
+    for i, img in enumerate(buffer):
         label_list = []
 
         # text = "person. car. dog. cat. bus. truck. pet."
@@ -532,7 +580,7 @@ def get_zero_shot_label(processor, model, device, buffer):
             if results[0]["labels"][i] == "person":
                 label_list.append([0] + boxes + [results[0]["scores"][i]])
 
-            label_list = merge_overlapping_boxes(label_list, iou_threshold = 0.5)
+        label_list = merge_overlapping_boxes(label_list, iou_threshold = 0.5)
 
         total_label.append(label_list)
 
@@ -628,8 +676,11 @@ def iou_2(box1, box2):
         return 0.0
 
 def merge_boxes_2(box1, box2):
-    x1_min, y1_min, x1_max, y1_max = box1[1:5]
-    x2_min, y2_min, x2_max, y2_max = box2[1:5]
+    x1, y1, w1, h1 = box1[1:5]
+    x2, y2, w2, h2 = box2[1:5]
+
+    x1_min, y1_min, x1_max, y1_max = x1, y1, x1 + w1, y1 + h1
+    x2_min, y2_min, x2_max, y2_max = x2, y2, x2 + w2, y2 + h2
 
     new_x_min = min(x1_min, x2_min)
     new_y_min = min(y1_min, y2_min)
@@ -637,12 +688,13 @@ def merge_boxes_2(box1, box2):
     new_y_max = max(y1_max, y2_max)
     new_conf = max(box1[5], box2[5])
 
-    return [box1[0], new_x_min, new_y_min, new_x_max, new_y_max, new_conf]
+    # return [box1[0], new_x_min, new_y_min, new_x_max, new_y_max, new_conf]
+    return [box1[0], new_x_min, new_y_min, new_x_max - new_x_min, new_y_max - new_y_min, new_conf]
 
 def merge_overlapping_boxes(boxes, iou_threshold):
     if len(boxes) == 0:
         return []
-
+    
     merged_boxes = []
     while boxes:
         box = boxes.pop(0)
