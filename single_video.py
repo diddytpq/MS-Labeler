@@ -2,14 +2,13 @@ import os
 from pathlib import Path
 import cv2
 import torch
-from utils import make_square_bbox, get_yolo_label, get_zero_shot_label, nms, plot_one_box, get_img_buffer, nms_test, create_dataset_list, save_final_dataset, train_model, merge_overlapping_boxes
+from utils import check_LLM, make_square_bbox, get_yolo_label, get_zero_shot_label, nms, plot_one_box, get_img_buffer, nms_test, create_dataset_list, save_final_dataset, train_model, merge_overlapping_boxes
 
 import numpy as np
 
 from PIL import Image
 
 from tqdm import tqdm
-import time
 
 from ultralytics import YOLO
 from transformers import AutoProcessor, AutoModelForCausalLM, AutoTokenizer, AutoModel, AutoModelForZeroShotObjectDetection
@@ -20,65 +19,6 @@ from transformers import AutoModel, AutoTokenizer
 
 import torchvision.transforms as T
 
-def check_LLM(model, tokenizer, img_buffer, label, verbose = False):
-    final_label = []
-    
-    for i in tqdm(range(len(img_buffer)), desc="Processing Image", leave=False):
-        img = img_buffer[i]
-        bboxes = label[i]
-        new_label = []
-
-        for cls, x1, y1, x2, y2, score in bboxes:
-            t1 = time.time()
-            extend_x1, extend_y1, extend_x2, extend_y2, score, cls = make_square_bbox([cls, x1, y1, x2, y2, score], img, extend_ratio=10)
-            cropped_img = img[int(extend_y1) : int(extend_y2), int(extend_x1) : int(extend_x2)]
-            pil_img_1 = Image.fromarray(cropped_img).convert('RGB')
-
-
-            new_x1, new_y1, new_x2, new_y2, score, cls = make_square_bbox([cls, x1, y1, x2, y2, score], img, extend_ratio = 1.2)
-            cropped_img = img[int(new_y1) : int(new_y2), int(new_x1) : int(new_x2)]
-            pil_img_2 = Image.fromarray(cropped_img).convert('RGB')
-
-            question = "Do you see whole person in this image? please answer yes or no."
-            msgs = [{'role': 'user', 'content': [pil_img_1, pil_img_2, question]}]
-
-            answer = model.chat(
-                    image=None,
-                    msgs=msgs,
-                    tokenizer=tokenizer,
-                    max_new_tokens = 1
-                ).lower()
-
-            if "yes" in answer:
-                new_label.append([cls, x1, y1, x2, y2, score])
-                print("ADD person bbox")
-
-
-            if verbose:
-                test_img = img.copy()
-                # cv2.imshow(f"cropped_img_extend", cropped_img_extend)
-                cv2.rectangle(test_img, (int(extend_x1), int(extend_y1)), (int(extend_x2), int(extend_y2)), (0,0,255), thickness=2, lineType=cv2.LINE_AA)
-                cv2.rectangle(test_img, (int(new_x1), int(new_y1)), (int(new_x2), int(new_y2)), (255,0,0), thickness=2, lineType=cv2.LINE_AA)
-                cv2.rectangle(test_img, (int(x1), int(y1)), (int(x2), int(y2)), (0,255,0), thickness=2, lineType=cv2.LINE_AA)
-                
-                cv2.imshow(f"example", test_img)
-
-                print("-----------------------")
-                print(time.time() - t1)
-                # print("question 1 : ",res_main)
-                print("question : ",answer)
-
-                # cv2.waitKey(0)
-                cv2.waitKey(1)
-
-                # cv2.destroyAllWindows()
-
-        # final_label.append(new_label)
-        label[i] = new_label
-    
-    return label
-
-
 TEST = True
 
 HOME = Path.home()
@@ -86,15 +26,14 @@ device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
 video_list_path = os.path.join(os.getcwd(), "videos")
 video_name_list = os.listdir(video_list_path)
-# yolo_weight_path = os.path.join(os.getcwd(), "weights", "yolo", "ms-ai2407-finetune_M.pt")
+yolo_weight_path = os.path.join(os.getcwd(), "weights", "yolo", "ms-ai2407-finetune_M.pt")
 # yolo_weight_path = os.path.join(os.getcwd(), "train", "weights", "last", "weights", "last.pt")
-yolo_weight_path = os.path.join(os.getcwd(), "weights", "yolo", "ms-ai2405-finetune_M.pt")
 
 
 with torch.no_grad():
     for video_name in video_name_list:
         camera_name = "test"
-        video_name = "09.08.09_침입.avi"
+        video_name = "13.06.13_침입.mp4"
 
         yolo_model = YOLO(yolo_weight_path)  # load a pretrained model (recommended for training)\
 
@@ -118,6 +57,9 @@ with torch.no_grad():
         yolo_label_data = get_yolo_label(model = yolo_model, buffer = img_buffer)
         zeroshot_label_data = get_zero_shot_label(model = zero_shot_ob_model, buffer = img_buffer, processor = processor, device = device)
 
+        print(len(img_buffer))
+
+
         non_llm_input_bboxes = []
         llm_input_bboxes = []
 
@@ -125,12 +67,11 @@ with torch.no_grad():
             all_boxes = yolo_label_data[i] + zeroshot_label_data[i]
 
             # nms_boxes = nms(all_boxes, iou_threshold=0.9)
-            # nms_boxes, non_nms_boxes = nms_test(yolo_label_data[i], zeroshot_label_data[i], iou_threshold=0.6)
-            nms_boxes_original_format, non_nms_boxes_original_format = nms_test(yolo_label_data[i], zeroshot_label_data[i], iou_threshold=0.6)
+            nms_boxes, non_nms_boxes = nms_test(yolo_label_data[i], zeroshot_label_data[i], iou_threshold=0.6)
 
             
-            # nms_boxes_original_format = [[0, box[0], box[1], box[2] - box[0], box[3] - box[1], box[4]] for box in nms_boxes]
-            # non_nms_boxes_original_format = [[0, box[0], box[1], box[2] - box[0], box[3] - box[1], box[4]] for box in non_nms_boxes]
+            nms_boxes_original_format = [[0, box[0], box[1], box[2] - box[0], box[3] - box[1], box[4]] for box in nms_boxes]
+            non_nms_boxes_original_format = [[0, box[0], box[1], box[2] - box[0], box[3] - box[1], box[4]] for box in non_nms_boxes]
 
             non_llm_input_bboxes.append(nms_boxes_original_format)
             llm_input_bboxes.append(non_nms_boxes_original_format)
@@ -139,8 +80,13 @@ with torch.no_grad():
         del zero_shot_ob_model
         del processor
 
-        llm_model = AutoModel.from_pretrained('./weights/MiniCPM-V-2_6-int4', trust_remote_code=True)
-        tokenizer = AutoTokenizer.from_pretrained('./weights/MiniCPM-V-2_6-int4', trust_remote_code=True)
+        llm_model = AutoModel.from_pretrained("./weights/InternVL2-4B",
+                                                torch_dtype=torch.bfloat16,
+                                                low_cpu_mem_usage=True,
+                                                trust_remote_code=True).eval().cuda()
+
+        tokenizer = AutoTokenizer.from_pretrained("./weights/InternVL2-4B", trust_remote_code=True)
+
         llm_model.eval()
 
         LLM_label = check_LLM(model = llm_model,
@@ -154,11 +100,9 @@ with torch.no_grad():
         for i in range(len(img_buffer)):
             bboxes_list.append(non_llm_input_bboxes[i] + LLM_label[i])
 
-
-        final_bboxes_list = bboxes_list
-        # final_bboxes_list = []
-        # for bbox_list in bboxes_list:
-        #     final_bboxes_list.append(merge_overlapping_boxes(bbox_list, iou_threshold = 0.5)) 
+        final_bboxes_list = []
+        for bbox_list in bboxes_list:
+            final_bboxes_list.append(merge_overlapping_boxes(bbox_list, iou_threshold = 0.5)) 
 
         del llm_model
         del tokenizer
@@ -200,9 +144,24 @@ with torch.no_grad():
 
                 cv2.imwrite(output_path, concat_img_final)
 
-            # print(final_bboxes_list)
-            
+                # cv2.imshow("frame", img)
+                # cv2.imshow("img_new", img_new)
+                # while True:
+                #     cv2.imshow("frame", img)
+                #     cv2.imshow("img_new", img_new)
+                #     key = cv2.waitKey(0)
 
+                #     if key == 27 : break
+
+            print(final_bboxes_list)
+            
+            # save_final_dataset(video_name = video_name,
+            #                     date = "test",
+            #                     img_buffer = img_buffer, 
+            #                     label = final_bboxes_list,
+            #                     img_save_dir = img_save_dir, 
+            #                     label_save_dir = label_save_dir,
+            #                     )
         break
 
 # dataset_path = os.path.join("./", "dataset")

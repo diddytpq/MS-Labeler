@@ -38,7 +38,9 @@ device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
 video_list_path = os.path.join(os.getcwd(), "videos")
 video_name_list = os.listdir(video_list_path)
-yolo_weight_path = os.path.join(os.getcwd(), "weights", "yolo", "ms-ai_24-07-30-M.pt")
+# yolo_weight_path = os.path.join(os.getcwd(), "weights", "yolo", "ms-ai_24-07-30-M.pt")
+yolo_weight_path = os.path.join(os.getcwd(), "weights", "yolo", "yolov8m.pt")
+
 # yolo_weight_path = os.path.join(os.getcwd(), "weights", "yolo", "ms-ai2401-finetune.pt")
 
 # yolo_weight_path = os.path.join(os.getcwd(), "train", "weights", "last", "weights", "last.pt")
@@ -179,8 +181,7 @@ def get_img_buffer(video_path):
         
         frame_num += 1
 
-        if ret and frame_num % 10 == 0:
-            img_buffer[len(img_buffer)] = img
+        img_buffer[len(img_buffer)] = img
 
     return img_buffer
 
@@ -406,9 +407,9 @@ def save_result_img(img_save_path, img_buffer, yolo_label_data, zeroshot_label_d
             cv2.imwrite(output_path, concat_img_final)
 
 with torch.no_grad():
-    camera_name = "test"
-    video_name = "09.08.09_침입.avi"
-    video_name = "미르스타디움_6.mp4"
+    camera_name = "test_video2"
+    video_name = "08.48.12_배회1111.avi"
+    # video_name = "미르스타디움_6.mp4"
 
     date = "test"
 
@@ -426,52 +427,9 @@ with torch.no_grad():
         os.makedirs(img_save_path, exist_ok=True)
 
     img_buffer = get_img_buffer(video_path = os.path.join(video_list_path, camera_name, video_name))
-    # img_buffer = [
-                #   cv2.imread("./images/a.png"), 
-                #   cv2.imread("./images/b.png"), 
-                #   cv2.imread("./images/c.png"), 
-                #   cv2.imread("./images/d.png"),
-                #   cv2.imread("./images/e.png"), 
-                #   cv2.imread("./images/f.png"),
-                #   cv2.imread("./images/g.png")
-                #   ]
-
     yolo_label_data = get_yolo_label(model = yolo_model, 
                                      buffer = img_buffer)
-    zeroshot_label_data = get_zero_shot_label(model = zero_shot_ob_model, 
-                                              buffer = img_buffer, 
-                                              processor = processor, 
-                                              device = device)
-
-    non_llm_input_bboxes = {}
-    llm_input_bboxes = {}
-
-    for frame_num, label in yolo_label_data.items():
-        non_llm_input_bboxes[frame_num], llm_input_bboxes[frame_num] = nms_test(yolo_label_data[frame_num], zeroshot_label_data[frame_num], iou_threshold=0.75)
-
-    del yolo_model, zero_shot_ob_model, processor
-
-    llm_model = AutoModel.from_pretrained(os.getcwd() + "/weights/InternVL2-4B",
-                                            torch_dtype=torch.bfloat16,
-                                            low_cpu_mem_usage=True,
-                                            trust_remote_code=True).eval().cuda()
-
-    tokenizer = AutoTokenizer.from_pretrained(os.getcwd() + "/weights/InternVL2-4B", trust_remote_code=True)
-
-    LLM_bbox = check_LLM(model = llm_model,
-                        tokenizer = tokenizer,
-                        img_buffer = img_buffer,
-                        label = llm_input_bboxes,
-                        verbose = False
-                        )
     
-    del llm_model, tokenizer
-
-    bboxes_list = {}
-
-    for frame_num, img in img_buffer.items():
-        bboxes_list[frame_num] = merge_overlapping_boxes(non_llm_input_bboxes[frame_num] + LLM_bbox[frame_num], 
-                                                         iou_threshold = 0.5)
 
     save_img(video_name = video_name, 
              img_buffer = img_buffer, 
@@ -479,19 +437,28 @@ with torch.no_grad():
 
     sam_label = SAM_label(img_buffer = img_buffer,
                         img_path = temp_save_dir,
-                        label = bboxes_list,
+                        label = yolo_label_data,
                         )
     
-    save_final_dataset(video_name = video_name,
-                        date = "test",
-                        img_buffer = img_buffer, 
-                        label_buffer = sam_label,
-                        img_save_dir = img_save_dir, 
-                        label_save_dir = label_save_dir,
-                        )
-    if TEST:
-        save_result_img(img_save_path, img_buffer, yolo_label_data, zeroshot_label_data, non_llm_input_bboxes, bboxes_list, sam_label)
+    for frame_num, img in img_buffer.items():
+        sam_final = img.copy()
 
+        if frame_num in sam_label.keys():
+            for cls, x1, y1, x2, y2, score in sam_label[frame_num]:
+                xyxy = [int(x1), int(y1), int(x2), int(y2)]
+                plot_one_box(xyxy, sam_final, label=None, color=(192,154,25), line_thickness=2) # 박스 그리기
+
+    output_path = os.path.join(img_save_path, f"{frame_num}.png")
+    cv2.imwrite(output_path, sam_final)
+
+    # save_final_dataset(video_name = video_name,
+    #                     date = "test",
+    #                     img_buffer = img_buffer, 
+    #                     label_buffer = sam_label,
+    #                     img_save_dir = img_save_dir, 
+    #                     label_save_dir = label_save_dir,
+    #                     )
+    
 cv2.destroyAllWindows()
 cmd = "chmod 777 -R ./"
 os.system(cmd)

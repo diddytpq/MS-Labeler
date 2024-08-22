@@ -70,8 +70,8 @@ def nms(boxes, iou_threshold=0.5):
 
 def iou(box1, box2):
     """Calculate Intersection over Union (IoU) of two boxes."""
-    x1, y1, x2, y2 = box1[:4]
-    xx1, yy1, xx2, yy2 = box2[:4]
+    x1, y1, x2, y2 = box1[1:5]
+    xx1, yy1, xx2, yy2 = box2[1:5]
     
     inter_x1 = max(x1, xx1)
     inter_y1 = max(y1, yy1)
@@ -86,21 +86,21 @@ def iou(box1, box2):
 
 def merge_boxes(box1, box2):
     """Merge two boxes by averaging their coordinates and taking the maximum score."""
-    x1 = min(box1[0], box2[0])
-    y1 = min(box1[1], box2[1])
+    x1 = min(box1[1], box2[1])
+    y1 = min(box1[2], box2[2])
     # x2 = max(box1[2], box2[2])
     # y2 = max(box1[3], box2[3])
-    x2 = min(box1[2], box2[2])
-    y2 = min(box1[3], box2[3])
-    score = max(box1[4], box2[4])
-    return [x1, y1, x2, y2, score]
+    x2 = min(box1[3], box2[3])
+    y2 = min(box1[4], box2[4])
+    score = max(box1[5], box2[5])
+    return [box1[0], x1, y1, x2, y2, score]
 
 def nms_test(bbox_list_1, bbox_list_2, iou_threshold=0.8):
     merge_list = []
     unmerge_list = []
 
-    bbox_list_1 = [convert_box(box) for box in bbox_list_1]
-    bbox_list_2 = [convert_box(box) for box in bbox_list_2]
+    # bbox_list_1 = [convert_box(box) for box in bbox_list_1]
+    # bbox_list_2 = [convert_box(box) for box in bbox_list_2]
 
 
     
@@ -124,6 +124,9 @@ def nms_test(bbox_list_1, bbox_list_2, iou_threshold=0.8):
         if not merged_2[j]:
             unmerge_list.append(box)
     
+    # nms_boxes_original_format = [[0, box[0], box[1], box[2] - box[0], box[3] - box[1], box[4]] for box in merge_list]
+    # non_nms_boxes_original_format = [[0, box[0], box[1], box[2] - box[0], box[3] - box[1], box[4]] for box in unmerge_list]
+
     return merge_list, unmerge_list
 
 
