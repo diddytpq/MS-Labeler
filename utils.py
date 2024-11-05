@@ -556,34 +556,34 @@ def get_zero_shot_label(processor, model, device, buffer):
     for i, img in enumerate(buffer):
         label_list = []
 
-        # text = "person. car. dog. cat. bus. truck. pet."
-        text = "person. car. dog. cat. tree."
-        # text = "human. car. dog. cat. tree."
+        # # text = "person. car. dog. cat. bus. truck. pet."
+        # text = "person. car. dog. cat. tree."
+        # # text = "human. car. dog. cat. tree."
 
-        pil_img = Image.fromarray(img.astype('uint8'), 'RGB')
+        # pil_img = Image.fromarray(img.astype('uint8'), 'RGB')
 
-        inputs = processor(images=pil_img, text=text, return_tensors="pt").to(device)
+        # inputs = processor(images=pil_img, text=text, return_tensors="pt").to(device)
 
-        with torch.no_grad():
-            outputs = model(**inputs)
+        # with torch.no_grad():
+        #     outputs = model(**inputs)
 
-            results = processor.post_process_grounded_object_detection(
-                outputs,
-                inputs.input_ids,
-                box_threshold=0.1,
-                # text_threshold=0.55,
-                text_threshold=0.60,
-                target_sizes=[pil_img.size[::-1]]
-            )
+        #     results = processor.post_process_grounded_object_detection(
+        #         outputs,
+        #         inputs.input_ids,
+        #         box_threshold=0.1,
+        #         # text_threshold=0.55,
+        #         text_threshold=0.60,
+        #         target_sizes=[pil_img.size[::-1]]
+        #     )
 
-        # print(results)
+        # # print(results)
         
 
-        for i, boxes in enumerate(results[0]["boxes"].tolist()):
-            if results[0]["labels"][i] == "person":
-                label_list.append([0] + boxes + [results[0]["scores"][i]])
+        # for i, boxes in enumerate(results[0]["boxes"].tolist()):
+        #     if results[0]["labels"][i] == "person":
+        #         label_list.append([0] + boxes + [results[0]["scores"][i]])
 
-        label_list = merge_overlapping_boxes(label_list, iou_threshold = 0.5)
+        # label_list = merge_overlapping_boxes(label_list, iou_threshold = 0.5)
 
         total_label.append(label_list)
 
@@ -679,11 +679,13 @@ def iou_2(box1, box2):
         return 0.0
 
 def merge_boxes_2(box1, box2):
-    x1, y1, w1, h1 = box1[1:5]
-    x2, y2, w2, h2 = box2[1:5]
+    # x1, y1, w1, h1 = box1[1:5]
+    # x2, y2, w2, h2 = box2[1:5]
+    x1_min, y1_min, x1_max, y1_max = box1[1:5]
+    x2_min, y2_min, x2_max, y2_max = box2[1:5]
 
-    x1_min, y1_min, x1_max, y1_max = x1, y1, x1 + w1, y1 + h1
-    x2_min, y2_min, x2_max, y2_max = x2, y2, x2 + w2, y2 + h2
+    # x1_min, y1_min, x1_max, y1_max = x1, y1, x1 + w1, y1 + h1
+    # x2_min, y2_min, x2_max, y2_max = x2, y2, x2 + w2, y2 + h2
 
     new_x_min = min(x1_min, x2_min)
     new_y_min = min(y1_min, y2_min)
@@ -691,8 +693,24 @@ def merge_boxes_2(box1, box2):
     new_y_max = max(y1_max, y2_max)
     new_conf = max(box1[5], box2[5])
 
-    # return [box1[0], new_x_min, new_y_min, new_x_max, new_y_max, new_conf]
-    return [box1[0], new_x_min, new_y_min, new_x_max - new_x_min, new_y_max - new_y_min, new_conf]
+    return [box1[0], new_x_min, new_y_min, new_x_max, new_y_max, new_conf]
+
+def merge_boxes_avg(box1, box2):
+    # x1, y1, w1, h1 = box1[1:5]
+    # x2, y2, w2, h2 = box2[1:5]
+    x1_min, y1_min, x1_max, y1_max = box1[1:5]
+    x2_min, y2_min, x2_max, y2_max = box2[1:5]
+
+    # x1_min, y1_min, x1_max, y1_max = x1, y1, x1 + w1, y1 + h1
+    # x2_min, y2_min, x2_max, y2_max = x2, y2, x2 + w2, y2 + h2
+
+    new_x_min = np.mean([x1_min, x2_min])
+    new_y_min = np.mean([y1_min, y2_min])
+    new_x_max = np.mean([x1_max, x2_max])
+    new_y_max = np.mean([y1_max, y2_max])
+    new_conf = np.mean([box1[5], box2[5]])
+
+    return [box1[0], new_x_min, new_y_min, new_x_max, new_y_max, new_conf]
 
 def merge_overlapping_boxes(boxes, iou_threshold):
     if len(boxes) == 0:
@@ -711,7 +729,7 @@ def merge_overlapping_boxes(boxes, iou_threshold):
         while len(to_merge) > 1:
             box1 = to_merge.pop(0)
             box2 = to_merge.pop(0)
-            merged_box = merge_boxes_2(box1, box2)
+            merged_box = merge_boxes_avg(box1, box2)
             to_merge.append(merged_box)
 
         merged_boxes.append(to_merge[0])

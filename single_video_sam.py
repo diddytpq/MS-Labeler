@@ -38,7 +38,7 @@ device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
 video_list_path = os.path.join(os.getcwd(), "videos")
 video_name_list = os.listdir(video_list_path)
-yolo_weight_path = os.path.join(os.getcwd(), "weights", "yolo", "ms-ai_24-07-30-M.pt")
+yolo_weight_path = os.path.join(os.getcwd(), "weights", "yolo", "ms-ai_24-09-30-M.pt")
 # yolo_weight_path = os.path.join(os.getcwd(), "weights", "yolo", "ms-ai2401-finetune.pt")
 
 # yolo_weight_path = os.path.join(os.getcwd(), "train", "weights", "last", "weights", "last.pt")
@@ -71,6 +71,102 @@ def overlay_mask_on_image(image, mask, color):
         overlay[:, :, i] = np.where(mask, image[:, :, i] * (1 - alpha) + color[i] * 255 * alpha, image[:, :, i])
     return overlay
 
+# def SAM_label(img_buffer, img_path, label):
+#     # from lib.segment_anything_2.sam2.build_sam import build_sam2_video_predictor
+#     # from lib.segment_anything_2 import sam2
+#     from sam2.build_sam import build_sam2_video_predictor
+
+#     torch.autocast(device_type="cuda", dtype=torch.bfloat16).__enter__()
+#     # sam2_checkpoint = os.path.join(os.getcwd(), "weights", "segment_anything_2", "sam2_hiera_large.pt")
+#     sam2_checkpoint = os.path.join(os.getcwd(), "weights", "segment_anything_2", "sam2_hiera_large.pt")
+
+#     # model_cfg = os.path.join(os.getcwd(), "weights", "segment_anything_2", "sam2_hiera_l.yaml")
+#     model_cfg = "./sam2_hiera_l.yaml"
+
+#     predictor = build_sam2_video_predictor(model_cfg, sam2_checkpoint)
+
+#     inference_state = predictor.init_state(video_path=img_path)
+    
+#     label_dict = {}
+#     final_label = {}
+#     for frame_num, bbox_list in label.items():
+#         if len(bbox_list):
+#             for cls, x1, y1, x2, y2, score in bbox_list:
+#                 predictor.reset_state(inference_state)
+
+#                 ori = cv2.rectangle(img_buffer[frame_num].copy(), (int(x1), int(y1)), (int(x2), int(y2)), (255, 0, 0), 2)
+
+
+#                 ann_frame_idx = frame_num  # the frame index we interact with
+#                 ann_obj_id = int(frame_num)  # give a unique id to each object we interact with (it can be any integers)
+
+#                 points = np.array([[(x2 + x1)/2, (y2 + y1)/2]], dtype=np.float32)
+#                 labels = np.array([1], np.int32)
+#                 _, out_obj_ids, out_mask_logits = predictor.add_new_points(inference_state=inference_state,
+#                                                                             frame_idx=ann_frame_idx,
+#                                                                             obj_id=ann_obj_id,
+#                                                                             points=points,
+#                                                                             labels=labels,
+#                                                                             )
+
+#                 video_segments = {} 
+
+#                 for out_frame_idx, out_obj_ids, out_mask_logits in predictor.propagate_in_video(inference_state):
+#                     video_segments[out_frame_idx] = {out_obj_id: (out_mask_logits[i] > 1).cpu().numpy()
+#                                                     for i, out_obj_id in enumerate(out_obj_ids)
+#                                                     }
+                    
+#                 for out_frame_idx, out_obj_ids, out_mask_logits in predictor.propagate_in_video(inference_state, reverse=True):
+
+#                     video_segments[out_frame_idx] = {out_obj_id: (out_mask_logits[i] > 1).cpu().numpy()
+#                                                     for i, out_obj_id in enumerate(out_obj_ids)
+#                                                     }
+                
+
+                
+#                 for out_frame_idx in video_segments.keys():
+#                     for out_obj_id, out_mask in video_segments[out_frame_idx].items():
+#                         # new_label = []
+#                         binary_image = out_mask
+
+#                         h, w = binary_image.shape[-2:]
+
+#                         bboxes = get_bboxes(binary_image)
+#                         for bbox in bboxes:
+#                             x, y, w, h = bbox
+#                             # new_label.append([0, x, y, x+w, y+h, 1])
+
+#                             if w * h < 100: continue
+
+#                             if out_frame_idx in label_dict.keys():
+#                                 label_dict[out_frame_idx].append([0, x, y, x+w, y+h, 1])
+
+#                             else:
+#                                 label_dict[out_frame_idx] = [[0, x, y, x+w, y+h, 1]]
+
+#                             # 이진 이미지를 색상 이미지로 변환
+#                             color = np.concatenate([np.random.random(3), np.array([0.6])], axis=0)  
+#                             color_image = img_buffer[out_frame_idx].copy()
+#                             cv2.rectangle(color_image, (x, y), (x + w, y + h), (0, 255, 0), 2)
+
+#                             for i in range(3):
+#                                 color_image[:, :, i] = binary_image * int(color[i] * 255)
+
+#                             # OpenCV를 사용하여 이미지 표시
+#                             cv2.imshow("ori", img_buffer[out_frame_idx].copy())
+#                             cv2.imshow("Overlayed Image", color_image)
+
+                            
+#                             cv2.waitKey(0)
+#                             cv2.destroyAllWindows()
+
+#     for frame_num, box_list in label_dict.items():
+#         final_label[frame_num] = merge_overlapping_boxes(box_list, iou_threshold = 0.33)
+#         # final_label[frame_num] = box_list
+
+
+#     return final_label
+
 def SAM_label(img_buffer, img_path, label):
     # from lib.segment_anything_2.sam2.build_sam import build_sam2_video_predictor
     # from lib.segment_anything_2 import sam2
@@ -90,79 +186,57 @@ def SAM_label(img_buffer, img_path, label):
     label_dict = {}
     final_label = {}
     for frame_num, bbox_list in label.items():
-        if len(bbox_list):
-            for cls, x1, y1, x2, y2, score in bbox_list:
-                predictor.reset_state(inference_state)
+        predictor.reset_state(inference_state)
 
-                ori = cv2.rectangle(img_buffer[frame_num].copy(), (int(x1), int(y1)), (int(x2), int(y2)), (255, 0, 0), 2)
-
+        if bbox_list:
+            for i , (cls, x1, y1, x2, y2, score) in enumerate(bbox_list):
 
                 ann_frame_idx = frame_num  # the frame index we interact with
-                ann_obj_id = int(frame_num)  # give a unique id to each object we interact with (it can be any integers)
+                ann_obj_id = int(i)  # give a unique id to each object we interact with (it can be any integers)
 
-                points = np.array([[(x2 + x1)/2, (y2 + y1)/2]], dtype=np.float32)
-                labels = np.array([1], np.int32)
-                _, out_obj_ids, out_mask_logits = predictor.add_new_points(inference_state=inference_state,
-                                                                            frame_idx=ann_frame_idx,
-                                                                            obj_id=ann_obj_id,
-                                                                            points=points,
-                                                                            labels=labels,
-                                                                            )
+                box = np.array([int(x1), int(y1), int(x2), int(y2)])
+                _, out_obj_ids, out_mask_logits = predictor.add_new_points_or_box(inference_state=inference_state,
+                                                                        frame_idx=ann_frame_idx,
+                                                                        obj_id=ann_obj_id,
+                                                                        box=box,
+                                                                    )
 
-                video_segments = {} 
-
-                for out_frame_idx, out_obj_ids, out_mask_logits in predictor.propagate_in_video(inference_state):
-                    video_segments[out_frame_idx] = {out_obj_id: (out_mask_logits[i] > 0.5).cpu().numpy()
-                                                    for i, out_obj_id in enumerate(out_obj_ids)
-                                                    }
-                    
-                for out_frame_idx, out_obj_ids, out_mask_logits in predictor.propagate_in_video(inference_state, reverse=True):
-
-                    video_segments[out_frame_idx] = {out_obj_id: (out_mask_logits[i] > 0.5).cpu().numpy()
-                                                    for i, out_obj_id in enumerate(out_obj_ids)
-                                                    }
+            video_segments = {} 
+    
+            for out_frame_idx, out_obj_ids, out_mask_logits in predictor.propagate_in_video(inference_state):
+                video_segments[out_frame_idx] = {out_obj_id: (out_mask_logits[i] > 0.5).cpu().numpy()
+                                                for i, out_obj_id in enumerate(out_obj_ids)
+                                                }
                 
+            for out_frame_idx, out_obj_ids, out_mask_logits in predictor.propagate_in_video(inference_state, reverse=True):
+                video_segments[out_frame_idx] = {out_obj_id: (out_mask_logits[i] > 0.5).cpu().numpy()
+                                                for i, out_obj_id in enumerate(out_obj_ids)
+                                                }
+            
+            for out_frame_idx in video_segments:
+                for out_obj_id, out_mask in video_segments[out_frame_idx].items():
+                    bboxes = get_bboxes_from_binary_img(out_mask)
 
-                
-                for out_frame_idx in video_segments.keys():
-                    for out_obj_id, out_mask in video_segments[out_frame_idx].items():
-                        # new_label = []
-                        binary_image = out_mask
+                    if out_frame_idx not in label_dict:
+                        label_dict[out_frame_idx] = []
 
-                        h, w = binary_image.shape[-2:]
-
-                        bboxes = get_bboxes(binary_image)
-                        for bbox in bboxes:
-                            x, y, w, h = bbox
-                            # new_label.append([0, x, y, x+w, y+h, 1])
-
-                            if w * h < 100: continue
-
-                            if out_frame_idx in label_dict.keys():
+                    if len(bboxes) > 0:
+                        for x, y, w, h in bboxes:
+                            if w * h >= 100: # 너무 작은 bbox는 제거
                                 label_dict[out_frame_idx].append([0, x, y, x+w, y+h, 1])
 
-                            else:
-                                label_dict[out_frame_idx] = [[0, x, y, x+w, y+h, 1]]
-
-                            # # 이진 이미지를 색상 이미지로 변환
-                            # color = np.concatenate([np.random.random(3), np.array([0.6])], axis=0)  
-                            # color_image = img_buffer[out_frame_idx]
-                            # cv2.rectangle(color_image, (x, y), (x + w, y + h), (0, 255, 0), 2)
-
-                            # # for i in range(3):
-                            # #     color_image[:, :, i] = binary_image * int(color[i] * 255)
-
-                            # # OpenCV를 사용하여 이미지 표시
-                            # cv2.imshow("ori", ori)
-                            # cv2.imshow("Overlayed Image", color_image)
-                            
-                            # cv2.waitKey(0)
-                            # cv2.destroyAllWindows()
 
     for frame_num, box_list in label_dict.items():
-        final_label[frame_num] = merge_overlapping_boxes(box_list, iou_threshold = 0.3)
+        final_label[frame_num] = merge_overlapping_boxes(box_list, iou_threshold = 0.33)
+        # final_label[frame_num] = box_list
+
 
     return final_label
+
+def get_bboxes_from_binary_img(mask):
+    mask_uint8 = np.squeeze(mask).astype(np.uint8)  # 데이터 타입 변환
+    contours, _ = cv2.findContours(mask_uint8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    return [cv2.boundingRect(contour) for contour in contours]
 
 def get_img_buffer(video_path):
     cap = cv2.VideoCapture(video_path)
@@ -179,7 +253,7 @@ def get_img_buffer(video_path):
         
         frame_num += 1
 
-        if ret and frame_num % 10 == 0:
+        if ret and frame_num % 20 == 0:
             img_buffer[len(img_buffer)] = img
 
     return img_buffer
@@ -199,7 +273,9 @@ def get_yolo_label(model, buffer):
     for frame_num, img in buffer.items():
         label = []
 
-        if frame_num % 3 == 0:
+        # if frame_num % 3 == 0:
+        if frame_num % 1.5 == 0:
+
             heigth, width = img.shape[0], img.shape[1]
 
             pred = model(img, 
@@ -233,7 +309,7 @@ def get_zero_shot_label(processor, model, device, buffer):
     for frame_num, img in buffer.items():
         label_list = []
 
-        if frame_num % 3 == 0:
+        if frame_num % 1.5 == 0:
             text = "person. car. dog. cat. tree."
 
             pil_img = Image.fromarray(img.astype('uint8'), 'RGB')
@@ -325,7 +401,7 @@ def check_LLM(model, tokenizer, img_buffer, label, verbose = False):
                 # cv2.destroyAllWindows()
 
         label[frame_num] = new_label
-        del pixel_values_1
+        # del pixel_values_1
 
     return label
 
@@ -406,9 +482,9 @@ def save_result_img(img_save_path, img_buffer, yolo_label_data, zeroshot_label_d
             cv2.imwrite(output_path, concat_img_final)
 
 with torch.no_grad():
-    camera_name = "test"
-    video_name = "09.08.09_침입.avi"
-    video_name = "미르스타디움_6.mp4"
+    camera_name = "asd"
+    video_name = "22.55.31_침입.avi"
+    # video_name = "미르스타디움_6.mp4"
 
     date = "test"
 
@@ -471,7 +547,7 @@ with torch.no_grad():
 
     for frame_num, img in img_buffer.items():
         bboxes_list[frame_num] = merge_overlapping_boxes(non_llm_input_bboxes[frame_num] + LLM_bbox[frame_num], 
-                                                         iou_threshold = 0.5)
+                                                         iou_threshold = 0.33)
 
     save_img(video_name = video_name, 
              img_buffer = img_buffer, 
