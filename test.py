@@ -1,355 +1,366 @@
-import os
-from pathlib import Path
-import cv2
-import torch
-from utils import make_square_bbox, get_yolo_label, get_zero_shot_label, nms, plot_one_box, get_img_buffer, nms_test, create_dataset_list, save_final_dataset, train_model, merge_overlapping_boxes
+# import sys
+# from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QListWidget, QPushButton, QFileDialog
+# from PySide6.QtCore import QDir
 
-import numpy as np
+# class FileListApp(QWidget):
+#     def __init__(self):
+#         super().__init__()
+#         self.setWindowTitle("File List Viewer")
+        
+#         # 레이아웃 설정
+#         layout = QVBoxLayout()
 
-from PIL import Image
+#         # 파일 목록을 표시할 QListWidget
+#         self.list_widget = QListWidget()
+#         layout.addWidget(self.list_widget)
 
-from tqdm import tqdm
+#         # 디렉토리를 선택할 버튼
+#         self.open_button = QPushButton("Select Directory")
+#         self.open_button.clicked.connect(self.open_directory)
+#         layout.addWidget(self.open_button)
 
-from ultralytics import YOLO
-from transformers import AutoProcessor, AutoModelForCausalLM, AutoTokenizer, AutoModel, AutoModelForZeroShotObjectDetection
+#         self.setLayout(layout)
 
+#     def open_directory(self):
+#         # 디렉토리 선택 대화상자 열기
+#         directory = QFileDialog.getExistingDirectory(self, "Select Directory")
+#         if directory:
+#             self.list_files(directory)
 
-from torchvision.transforms.functional import InterpolationMode
-from transformers import AutoModel, AutoTokenizer
+#     def list_files(self, directory):
+#         # 파일 목록을 초기화
+#         self.list_widget.clear()
 
-import torchvision.transforms as T
+#         # 선택한 디렉토리의 파일 목록 가져오기
+#         dir = QDir(directory)
+#         files = dir.entryList(QDir.Files)  # 파일만 목록에 추가
 
-def build_transform(input_size):
-    IMAGENET_MEAN = (0.485, 0.456, 0.406)
-    IMAGENET_STD = (0.229, 0.224, 0.225)
-
-    MEAN, STD = IMAGENET_MEAN, IMAGENET_STD
-    transform = T.Compose([
-        T.Lambda(lambda img: img.convert('RGB') if img.mode != 'RGB' else img),
-        T.Resize((input_size, input_size), interpolation=InterpolationMode.BICUBIC),
-        T.ToTensor(),
-        T.Normalize(mean=MEAN, std=STD)
-    ])
-    return transform
-
-
-def find_closest_aspect_ratio(aspect_ratio, target_ratios, width, height, image_size):
-    best_ratio_diff = float('inf')
-    best_ratio = (1, 1)
-    area = width * height
-    for ratio in target_ratios:
-        target_aspect_ratio = ratio[0] / ratio[1]
-        ratio_diff = abs(aspect_ratio - target_aspect_ratio)
-        if ratio_diff < best_ratio_diff:
-            best_ratio_diff = ratio_diff
-            best_ratio = ratio
-        elif ratio_diff == best_ratio_diff:
-            if area > 0.5 * image_size * image_size * ratio[0] * ratio[1]:
-                best_ratio = ratio
-    return best_ratio
+#         # 파일 목록을 QListWidget에 추가
+#         for file in files:
+#             self.list_widget.addItem(file)
 
 
-def dynamic_preprocess(image, min_num=1, max_num=6, image_size=448, use_thumbnail=False):
-    orig_width, orig_height = image.size
-    aspect_ratio = orig_width / orig_height
+# if __name__ == "__main__":
+#     app = QApplication(sys.argv)
+#     window = FileListApp()
+#     window.resize(400, 300)
+#     window.show()
+#     sys.exit(app.exec())
 
-    # calculate the existing image aspect ratio
-    target_ratios = set(
-        (i, j) for n in range(min_num, max_num + 1) for i in range(1, n + 1) for j in range(1, n + 1) if
-        i * j <= max_num and i * j >= min_num)
-    target_ratios = sorted(target_ratios, key=lambda x: x[0] * x[1])
 
-    # find the closest aspect ratio to the target
-    target_aspect_ratio = find_closest_aspect_ratio(
-        aspect_ratio, target_ratios, orig_width, orig_height, image_size)
+# import os
 
-    # calculate the target width and height
-    target_width = image_size * target_aspect_ratio[0]
-    target_height = image_size * target_aspect_ratio[1]
-    blocks = target_aspect_ratio[0] * target_aspect_ratio[1]
-
-    # resize the image
-    resized_img = image.resize((target_width, target_height))
-    processed_images = []
-    for i in range(blocks):
-        box = (
-            (i % (target_width // image_size)) * image_size,
-            (i // (target_width // image_size)) * image_size,
-            ((i % (target_width // image_size)) + 1) * image_size,
-            ((i // (target_width // image_size)) + 1) * image_size
-        )
-        # split the image
-        split_img = resized_img.crop(box)
-        processed_images.append(split_img)
-    assert len(processed_images) == blocks
-    if use_thumbnail and len(processed_images) != 1:
-        thumbnail_img = image.resize((image_size, image_size))
-        processed_images.append(thumbnail_img)
-    return processed_images
-
-def check_LLM_test_1(model, tokenizer, img_buffer, label, verbose = False):
-    final_label = []
-    transform = build_transform(input_size=448)
-
-    generation_config_1 = dict(num_beams=1,
-                            max_new_tokens=512,
-                            do_sample=False,
-                            )
+# def modify_cls_in_folder(input_folder, output_folder):
+#     # 출력 폴더가 없으면 생성
+#     os.makedirs(output_folder, exist_ok=True)
     
-    generation_config_2 = dict(num_beams=1,
-                            max_new_tokens=32,
-                            do_sample=False,
-                            )
-    
-    for i, img in enumerate(img_buffer):
-        bboxes = label[i]
-        new_label = []
-
-        for cls, x1, y1, x2, y2, score in bboxes:
-            extend_x1, extend_y1, extend_x2, extend_y2, score, cls = make_square_bbox([cls, x1, y1, x2, y2, score], img, extend_ratio=10)
-            cropped_img_extend = img[int(extend_y1) : int(extend_y2), int(extend_x1) : int(extend_x2)]
-            pil_img = Image.fromarray(cropped_img_extend).convert('RGB')
-            images = dynamic_preprocess(pil_img, image_size=448, use_thumbnail=True, max_num=6)
-            pixel_values_2 = [transform(image) for image in images]
-            pixel_values_2 = torch.stack(pixel_values_2).to(torch.bfloat16).cuda()
-
-            # pixel_values = torch.cat((pixel_values_1, pixel_values_2), dim=0)
-            # pixel_values = pixel_values_2
-            question = '<image>\nPlease describe the image in detail?'
-
-            res, history = model.chat(tokenizer, pixel_values_2, question, generation_config_1, history=None, return_history=True)
-
-            print("-----------------------")
-            print("question 1 : ",res)
-
-            new_x1, new_y1, new_x2, new_y2, score, cls = make_square_bbox([cls, x1, y1, x2, y2, score], img, extend_ratio = 1.2)
-            cropped_img = img[int(new_y1) : int(new_y2), int(new_x1) : int(new_x2)]
-            # pil_img = Image.fromarray(cropped_img.astype('uint8'), 'RGB')
-            pil_img = Image.fromarray(cropped_img).convert('RGB')
-            images = dynamic_preprocess(pil_img, image_size=448, use_thumbnail=True, max_num=6)
-            pixel_values_1 = [transform(image) for image in images]
-            pixel_values_1 = torch.stack(pixel_values_1).to(torch.bfloat16).cuda()
-
-            # question = "<image>\nDo you see entire person in this images?"
-            # question = "<image>\nDo you see the whole person in the center of this image?"
-            question = "<image>\nDo you see the whole human in the this image?"
-
-            res = model.chat(tokenizer, pixel_values_1, question, generation_config_2, history=history, return_history=False)
-
-            del pixel_values_1, pixel_values_2
-            res = res.lower()
-            print("question 2 : ",res)
-
-            if "yes" in res and "no" not in res.split(" "):
-                new_label.append([cls, x1, y1, x2, y2, score])
-                print("ADD person bbox")
-
-            else:
-                cropped_img = img[int(y1) : int(y2), int(x1) : int(x2)]
-                # cropped_img = img[int(new_y1) : int(new_y2), int(new_x1) : int(new_x2)]
-
-                pil_img = Image.fromarray(cropped_img.astype('uint8'), 'RGB')
-                images = dynamic_preprocess(pil_img, image_size=448, use_thumbnail=True, max_num=6)
-                pixel_values_3 = [transform(image) for image in images]
-                pixel_values_3 = torch.stack(pixel_values_3).to(torch.bfloat16).cuda()
-
-                # pixel_values_3 = torch.cat((pixel_values_3, pixel_values_2), dim=0)
-
-
-                # question = "<image>\nDo you detect person in this image center? ignore people visible in the background."
-                
-                # question = "<image>\nThis is an image of an assumed person. When you look at it, do you think it's really a person?"
-                question = "<image>\nDo you see human in this image?"
-                # question = "<image>\nDo you see person in the center of this image?"
-
-
-                res = model.chat(tokenizer, pixel_values_3, question, generation_config_2, history=history, return_history=False)
-
-                res = res.lower()
-                print(res)
-
-                del pixel_values_3
-
-                if "yes" in res and "no" not in res.split(" "):
-                    new_label.append([cls, x1, y1, x2, y2, score])
-                    print("ADD person bbox")
-
-            if verbose:
-                test_img = img.copy()
-                # cv2.imshow(f"cropped_img_extend", cropped_img_extend)
-                cv2.rectangle(test_img, (int(extend_x1), int(extend_y1)), (int(extend_x2), int(extend_y2)), (0,0,255), thickness=2, lineType=cv2.LINE_AA)
-                cv2.rectangle(test_img, (int(new_x1), int(new_y1)), (int(new_x2), int(new_y2)), (0,255,0), thickness=2, lineType=cv2.LINE_AA)
-                
-                cv2.imshow(f"example", test_img)
-
-                # cv2.waitKey(0)
-                cv2.waitKey(1)
-
-                # cv2.destroyAllWindows()
-
-        final_label.append(new_label)
-    
-
-    return final_label
-
-TEST = True
-
-HOME = Path.home()
-device = "cuda:0" if torch.cuda.is_available() else "cpu"
-
-video_list_path = os.path.join(os.getcwd(), "videos")
-video_name_list = os.listdir(video_list_path)
-yolo_weight_path = os.path.join(os.getcwd(), "weights", "yolo", "ms-ai_24-07-30-M.pt")
-
-with torch.no_grad():
-    for video_name in video_name_list:
-        camera_name = "test"
-        video_name = "camera_7_edit.mp4"
-
-        yolo_model = YOLO(yolo_weight_path)  # load a pretrained model (recommended for training)\
-
-        # zero_shot_ob_model = AutoModelForCausalLM.from_pretrained("./weights/Florence_2_large", trust_remote_code=True).to(device)
-        # processor = AutoProcessor.from_pretrained("./weights/Florence_2_large", trust_remote_code=True)
-        processor = AutoProcessor.from_pretrained(os.path.join(os.getcwd(),"weights/grounding-dino-base"))
-        zero_shot_ob_model = AutoModelForZeroShotObjectDetection.from_pretrained(os.path.join(os.getcwd(),"weights/grounding-dino-base")).to(device)
-        # video_name = "people-walking.mp4"
-        img_save_dir = os.path.join(os.getcwd(), "dataset", camera_name, "train", "images")
-        label_save_dir = os.path.join(os.getcwd(), "dataset", camera_name, "train", "labels")
-
-
-        if TEST:
-            img_save_path = f"./results/{video_name}/"
-            os.makedirs(img_save_path, exist_ok=True)
-
-        # img_buffer = get_img_buffer(video_path = os.path.join(video_list_path, camera_name, video_name))
-        img_buffer = [cv2.imread("./images/13.14.22_침입_0000.png"), 
-                      cv2.imread("./images/13.14.22_침입_0001.png"),
-                      cv2.imread("./images/13.14.22_침입_0002.png"),
-                      cv2.imread("./images/13.14.22_침입_0003.png"),
-                      cv2.imread("./images/13.14.22_침입_0004.png"),
-                      cv2.imread("./images/13.14.22_침입_0005.png"),
-                      cv2.imread("./images/13.14.22_침입_0006.png"),
-                      cv2.imread("./images/13.14.22_침입_0007.png"),
-                      cv2.imread("./images/13.14.22_침입_0008.png"),
-                      cv2.imread("./images/13.14.22_침입_0009.png"),
-                      ]
-                      
-        # img_buffer = [cv2.imread("./Screenshot from 2024-07-10 16-09-51.png")]
-
-        yolo_label_data = get_yolo_label(model = yolo_model, buffer = img_buffer)
-        zeroshot_label_data = get_zero_shot_label(model = zero_shot_ob_model, buffer = img_buffer, processor = processor, device = device)
-
-        non_llm_input_bboxes = []
-        llm_input_bboxes = []
-
-        for i in range(len(yolo_label_data)):
-            all_boxes = yolo_label_data[i] + zeroshot_label_data[i]
-
-            # nms_boxes = nms(all_boxes, iou_threshold=0.9)
-            nms_boxes, non_nms_boxes = nms_test(yolo_label_data[i], zeroshot_label_data[i], iou_threshold=0.8)
-
+#     # 입력 폴더에서 모든 텍스트 파일 순차적으로 읽기
+#     for filename in os.listdir(input_folder):
+#         if filename.endswith(".txt"):
+#             file_path = os.path.join(input_folder, filename)
+#             output_file_path = os.path.join(output_folder, filename)
             
-            nms_boxes_original_format = [[0, box[0], box[1], box[2] - box[0], box[3] - box[1], box[4]] for box in nms_boxes]
-            non_nms_boxes_original_format = [[0, box[0], box[1], box[2] - box[0], box[3] - box[1], box[4]] for box in non_nms_boxes]
+#             with open(file_path, 'r') as file:
+#                 lines = file.readlines()
+            
+#             # 각 줄을 읽고 cls가 1인 경우 9로 수정
+#             modified_lines = []
+#             for line in lines:
+#                 parts = line.strip().split()
+#                 cls = int(parts[0])  # cls 값을 가져옴
+#                 if cls in [0, 1, 2, 3, 4, 5, 9]:
+#                     if cls == 9:
+#                         parts[0] = '6'  # cls가 1이면 9로 변경
 
-            non_llm_input_bboxes.append(nms_boxes_original_format)
-            llm_input_bboxes.append(non_nms_boxes_original_format)
+#                 modified_lines.append(" ".join(parts))  # 수정된 줄을 리스트에 추가
+            
+#             # 수정된 내용을 새로운 파일에 저장
+#             with open(output_file_path, 'w') as file:
+#                 file.write("\n".join(modified_lines))
 
-        del yolo_model
-        del zero_shot_ob_model
-        del processor
+#             print(f"Modified file saved to: {output_file_path}")
 
-        llm_model = AutoModel.from_pretrained("./weights/InternVL2-4B",
-                                                torch_dtype=torch.bfloat16,
-                                                low_cpu_mem_usage=True,
-                                                trust_remote_code=True).eval().cuda()
+# # 사용 예시
+# input_folder = "./dataset/test/train/labels"       # 텍스트 파일들이 있는 폴더 경로
+# output_folder = "./dataset/test/train/labels_new"     # 수정된 파일을 저장할 폴더 경로
+# modify_cls_in_folder(input_folder, output_folder)
 
-        tokenizer = AutoTokenizer.from_pretrained("./weights/InternVL2-4B", trust_remote_code=True)
 
-        llm_model.eval()
+# import os
 
-        LLM_label = check_LLM_test_1(model = llm_model,
-                                    tokenizer = tokenizer,
-                                    img_buffer = img_buffer,
-                                    label = llm_input_bboxes,
-                                    verbose = False
-                                    )
-        bboxes_list = []
+# def delete_every_third_file(folder_path):
+#     # 폴더에서 파일 목록을 가져옴
+#     files = sorted(os.listdir(folder_path))  # 정렬된 파일 목록
 
-        for i in range(len(img_buffer)):
-            bboxes_list.append(non_llm_input_bboxes[i] + LLM_label[i])
+#     # 파일을 3개마다 하나씩 제거
+#     for i, file_name in enumerate(files):
+#         if (i + 1) % 3 == 0:  # 3번째마다
+#             file_path = os.path.join(folder_path, file_name)
+#             os.remove(file_path)  # 파일 제거
+#             print(f"Deleted file: {file_path}")
 
-        final_bboxes_list = []
-        for bbox_list in bboxes_list:
-            final_bboxes_list.append(merge_overlapping_boxes(bbox_list, iou_threshold = 0.5)) 
+# # 사용 예시
+# folder_path = "./dataset/명지_산학_3/images"  # 폴더 경로
+# delete_every_third_file(folder_path)
 
-        del llm_model
-        del tokenizer
+# # 사용 예시
+# folder_path = "./dataset/명지_산학_3/labels"  # 폴더 경로
+# delete_every_third_file(folder_path)
+
+# import sys
+# from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QListWidget, QPushButton, QFileDialog
+# from PySide6.QtCore import QDir
+
+# class FileListApp(QWidget):
+#     def __init__(self):
+#         super().__init__()
+#         self.setWindowTitle("File List Viewer")
         
-        if TEST:
-            for i, img in enumerate(img_buffer):
-                img_yolo = img.copy()
-                img_zero = img.copy()
-                img_nms = img.copy()
-                img_final = img.copy()
+#         # 레이아웃 설정
+#         layout = QVBoxLayout()
 
-                if len(yolo_label_data):
-                    for cls, x1, y1, x2, y2, score in yolo_label_data[i]:
-                        xyxy = [x1, y1, x2, y2]
-                        plot_one_box(xyxy, img_yolo, label=None, color=(255,0,0), line_thickness=2) # 박스 그리기
+#         # 파일 목록을 표시할 QListWidget
+#         self.list_widget = QListWidget()
+#         layout.addWidget(self.list_widget)
 
-                if len(zeroshot_label_data):
-                    for cls, x1, y1, x2, y2, score in zeroshot_label_data[i]:
-                        xyxy = [int(x1), int(y1), int(x2), int(y2)]
-                        plot_one_box(xyxy, img_zero, label=None, color=(181,186,126), line_thickness=2) # 박스 그리기
+#         # 디렉토리를 선택할 버튼
+#         self.open_button = QPushButton("Select Directory")
+#         self.open_button.clicked.connect(self.open_directory)
+#         layout.addWidget(self.open_button)
 
-                if len(non_llm_input_bboxes):
-                    for cls, x1, y1, x2, y2, score in non_llm_input_bboxes[i]:
-                        xyxy = [x1, y1, x2, y2]
-                        plot_one_box(xyxy, img_nms, label=None, color=(0,0,255), line_thickness=2) # 박스 그리기
+#         self.setLayout(layout)
 
-                if len(final_bboxes_list):
-                    for cls, x1, y1, x2, y2, score in final_bboxes_list[i]:
-                        xyxy = [int(x1), int(y1), int(x2), int(y2)]
-                        plot_one_box(xyxy, img_final, label=None, color=(0,255,0), line_thickness=2) # 박스 그리기
+#     def open_directory(self):
+#         # 디렉토리 선택 대화상자 열기
+#         directory = QFileDialog.getExistingDirectory(self, "Select Directory")
+#         if directory:
+#             self.list_files(directory)
+
+#     def list_files(self, directory):
+#         # 파일 목록을 초기화
+#         self.list_widget.clear()
+
+#         # 선택한 디렉토리의 파일 목록 가져오기
+#         dir = QDir(directory)
+#         files = dir.entryList(QDir.Files)  # 파일만 목록에 추가
+
+#         # 파일 목록을 QListWidget에 추가
+#         for file in files:
+#             self.list_widget.addItem(file)
 
 
-                concat_img_1 = np.vstack((img_yolo, img_zero))
-                concat_img_2 = np.vstack((img_nms, img_final))
+# if __name__ == "__main__":
+#     app = QApplication(sys.argv)
+#     window = FileListApp()
+#     window.resize(400, 300)
+#     window.show()
+#     sys.exit(app.exec())
 
-                concat_img_final = np.hstack((concat_img_1, concat_img_2))
 
-                output_path = os.path.join(img_save_path, f"{i}.png")
+# import os
 
-                cv2.imwrite(output_path, concat_img_final)
+# def modify_cls_in_folder(input_folder, output_folder):
+#     # 출력 폴더가 없으면 생성
+#     os.makedirs(output_folder, exist_ok=True)
+    
+#     # 입력 폴더에서 모든 텍스트 파일 순차적으로 읽기
+#     for filename in os.listdir(input_folder):
+#         if filename.endswith(".txt"):
+#             file_path = os.path.join(input_folder, filename)
+#             output_file_path = os.path.join(output_folder, filename)
+            
+#             with open(file_path, 'r') as file:
+#                 lines = file.readlines()
+            
+#             # 각 줄을 읽고 cls가 1인 경우 9로 수정
+#             modified_lines = []
+#             for line in lines:
+#                 parts = line.strip().split()
+#                 cls = int(parts[0])  # cls 값을 가져옴
+#                 if cls in [0, 1, 2, 3, 4, 5, 9]:
+#                     if cls == 9:
+#                         parts[0] = '6'  # cls가 1이면 9로 변경
 
-                # cv2.imshow("frame", img)
-                # cv2.imshow("img_new", img_new)
-                # while True:
-                #     cv2.imshow("frame", img)
-                #     cv2.imshow("img_new", img_new)
-                #     key = cv2.waitKey(0)
+#                 modified_lines.append(" ".join(parts))  # 수정된 줄을 리스트에 추가
+            
+#             # 수정된 내용을 새로운 파일에 저장
+#             with open(output_file_path, 'w') as file:
+#                 file.write("\n".join(modified_lines))
 
-                #     if key == 27 : break
+#             print(f"Modified file saved to: {output_file_path}")
 
+# # 사용 예시
+# input_folder = "./dataset/test/train/labels"       # 텍스트 파일들이 있는 폴더 경로
+# output_folder = "./dataset/test/train/labels_new"     # 수정된 파일을 저장할 폴더 경로
+# modify_cls_in_folder(input_folder, output_folder)
+
+
+# import os
+
+# def delete_every_third_file(folder_path):
+#     # 폴더에서 파일 목록을 가져옴
+#     files = sorted(os.listdir(folder_path))  # 정렬된 파일 목록
+
+#     # 파일을 3개마다 하나씩 제거
+#     for i, file_name in enumerate(files):
+#         if (i + 1) % 3 == 0:  # 3번째마다
+#             file_path = os.path.join(folder_path, file_name)
+#             os.remove(file_path)  # 파일 제거
+#             print(f"Deleted file: {file_path}")
+
+# # 사용 예시
+# folder_path = "./dataset/명지_산학_3/images"  # 폴더 경로
+# delete_every_third_file(folder_path)
+
+# # 사용 예시
+# folder_path = "./dataset/명지_산학_3/labels"  # 폴더 경로
+# delete_every_third_file(folder_path)
+
+import threading
+import os
+import cv2
+import sys
+import numpy as np
+import time
+from ultralytics import YOLO
+import torch
+
+class VideoStreamBuffer:
+    def __init__(self, rtsp_url):
+        self.capture = cv2.VideoCapture(rtsp_url)
+        self.buffer_frame = None
+        self.lock = threading.Lock()
+        self.stopped = False
+
+        # Start the frame update thread
+        self.thread = threading.Thread(target=self.update, args=())
+        self.thread.daemon = True
+        self.thread.start()
+        self.ret = False
+
+    def update(self):
+        while not self.stopped:
+            if self.capture.isOpened():
+                self.ret, frame = self.capture.read()
+                if self.ret:
+                    with self.lock:
+                        self.buffer_frame = frame
+
+    def read(self):
+        with self.lock:
+            frame = self.buffer_frame
+        return self.ret, frame
+
+    def stop(self):
+        self.stopped = True
+        self.thread.join()
+        self.capture.release()
+
+if __name__ == '__main__':
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+    model_path = os.path.join(os.getcwd(), "weights", "yolo", "ms-ai_v1.3_24-11-19-M.pt")
+    rtsp_url = 'rtsp://admin:admin13579@117.17.159.195:554/stream1'
+    video_stream = cv2.VideoCapture(rtsp_url)
+    model = YOLO(model_path, task="detect").to(device=device)  # load a pretrained model (recommended for training)\
+    print("load model")
+    cv2.namedWindow("test", cv2.WINDOW_NORMAL)
+
+    while True:
+        ret, frame = video_stream.read()
         
-            # save_final_dataset(video_name = video_name,
-            #                     date = "test",
-            #                     img_buffer = img_buffer, 
-            #                     label = final_bboxes_list,
-            #                     img_save_dir = img_save_dir, 
-            #                     label_save_dir = label_save_dir,
-            #                     )
-        break
+        if ret and frame is not None:
+            img = cv2.resize(frame,(640,480))
+            # dets = model.predict(source=frame, imgsz = 640, conf = 0.50, iou = 0.5, classes = [0], half = True, verbose=False)
+            dets = model(source=img, imgsz = 640, conf = 0.50, iou = 0.5, classes = [0,1,2,3,4,5],half = False, verbose=False)
+            torch.cuda.synchronize()
+            # 검출된 바운딩 박스 정보 가져오기
+            for det in dets[0].boxes:  # dets[0]에 각 프레임의 검출 결과가 포함됨
+                # 바운딩 박스 좌표 및 클래스 정보 추출
+                x1, y1, x2, y2 = map(int, det.xyxy[0])  # 좌표를 정수로 변환
+                confidence = det.conf[0]  # 신뢰도
+                class_id = int(det.cls[0])  # 클래스 ID
 
-# dataset_path = os.path.join("./", "dataset")
+                # Bounding Box 및 라벨 그리기
+                label = f"{class_id}: {confidence:.2f}"  # 클래스 ID 및 신뢰도 표시
+                cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 2)  # BBox 그리기
+                cv2.putText(img, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
-# create_dataset_list(dataset_path)
+            # 프레임을 화면에 출력
+            cv2.imshow("test", img)
+            key = cv2.waitKey(1)
+            if key == ord('q'):
+                break
 
-# yolo_weight_path = './weights/yolo/ms-ai2401-finetune.pt'
-# train_model(yolo_weight_path = yolo_weight_path)
+    # 자원 해제
+    video_stream.release()
+    cv2.destroyAllWindows()
 
 
-cv2.destroyAllWindows()
-cmd = "chmod 777 -R ./"
-os.system(cmd)
+# from ultralytics import YOLO
+# from pathlib import Path
+# from datetime import datetime
+# import os
+
+# def remove_npy() -> None:
+#     import glob
+#     npy_files = glob.glob(os.path.join(os.getcwd(), "dataset", '**', '*.npy'), recursive=True)
+#     cache_files = glob.glob(os.path.join(os.getcwd(), "dataset", '**', '*.cache'), recursive=True)
+
+#     for file_path in npy_files:
+#         try:
+#             os.remove(file_path)
+#             # print(f"파일 '{file_path}'이(가) 삭제되었습니다.")
+#         except Exception as e:
+#             print(f"파일 '{file_path}'을(를) 삭제하는 중 오류가 발생했습니다: {e}")
+
+#     for file_path in cache_files:
+#         try:
+#             os.remove(file_path)
+#             # print(f"파일 '{file_path}'이(가) 삭제되었습니다.")
+#         except Exception as e:
+#             print(f"파일 '{file_path}'을(를) 삭제하는 중 오류가 발생했습니다: {e}")
+
+
+# train_txt = ""
+# val_txt = ""
+# dataset_path = os.path.join(os.getcwd(), "dataset")
+# folder_list = os.listdir(dataset_path)
+
+# train_folder_list = ["명지_산학_1", "명지_산학_2", "명지_산학_3", "명지_입회시험", "coco", "fire", "KISA_국내", "KISA_해외", "미르스타디움"]
+
+# for folder_name in folder_list:
+
+
+#     if folder_name not in ["train.txt", "val.txt"] and folder_name in train_folder_list:
+#         train_img_path = os.path.join(dataset_path, folder_name, "train", "images")
+#         val_img_path = os.path.join(dataset_path, folder_name, "val", "images")
+
+#         train_img_list = os.listdir(train_img_path)
+
+#         try:
+#             val_img_list = os.listdir(val_img_path)
+#         except:
+#             val_img_list = []
+
+#         if train_img_list:
+#             train_img_list = sorted(train_img_list)
+#             for img_name in train_img_list:
+#                 save_path = os.path.join("./", folder_name, "train", "images")
+#                 img_path = os.path.join(save_path, img_name)
+#                 train_txt += f"{img_path}\n"
+
+#         if val_img_list:
+#             val_img_list = sorted(val_img_list)
+#             for img_name in val_img_list:
+#                 save_path = os.path.join("./", folder_name, "val", "images")
+#                 img_path = os.path.join(save_path, img_name)
+#                 val_txt += f"{img_path}\n"
+
+# if len(train_txt) > 0:
+#     with open("./dataset/train.txt", "w") as f:
+#         f.write(train_txt)
+
+# if len(val_txt) > 0:
+#     with open("./dataset/val.txt", "w") as f:
+#         f.write(val_txt)

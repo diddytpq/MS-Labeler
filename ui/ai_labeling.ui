@@ -1,0 +1,980 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>labeling_window</class>
+ <widget class="QWidget" name="labeling_window">
+  <property name="windowModality">
+   <enum>Qt::WindowModality::ApplicationModal</enum>
+  </property>
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>1280</width>
+    <height>720</height>
+   </rect>
+  </property>
+  <property name="maximumSize">
+   <size>
+    <width>999999</width>
+    <height>9999999</height>
+   </size>
+  </property>
+  <property name="focusPolicy">
+   <enum>Qt::FocusPolicy::StrongFocus</enum>
+  </property>
+  <property name="windowTitle">
+   <string notr="true">Labeling</string>
+  </property>
+  <property name="styleSheet">
+   <string notr="true">background-color: rgb(3, 3, 13);</string>
+  </property>
+  <layout class="QVBoxLayout" name="verticalLayout_6">
+   <item>
+    <layout class="QVBoxLayout" name="verticalLayout_4">
+     <item>
+      <layout class="QHBoxLayout" name="horizontalLayout_9">
+       <item>
+        <layout class="QHBoxLayout" name="horizontalLayout_6">
+         <item>
+          <widget class="QLabel" name="top_logo_2">
+           <property name="minimumSize">
+            <size>
+             <width>202</width>
+             <height>32</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>202</width>
+             <height>32</height>
+            </size>
+           </property>
+           <property name="font">
+            <font>
+             <family>Sans</family>
+            </font>
+           </property>
+           <property name="text">
+            <string/>
+           </property>
+           <property name="pixmap">
+            <pixmap resource="../resource.qrc">:/newPrefix/ui/logo.png</pixmap>
+           </property>
+           <property name="scaledContents">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="YOLO_bnt">
+           <property name="minimumSize">
+            <size>
+             <width>61</width>
+             <height>31</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>61</width>
+             <height>31</height>
+            </size>
+           </property>
+           <property name="font">
+            <font>
+             <family>NanumSquareRound</family>
+             <pointsize>10</pointsize>
+             <bold>false</bold>
+            </font>
+           </property>
+           <property name="cursor">
+            <cursorShape>PointingHandCursor</cursorShape>
+           </property>
+           <property name="styleSheet">
+            <string notr="true">QPushButton {
+    background-color: rgb(36, 39, 44);
+    color: rgb(255, 255, 255);
+    border-radius: 15px;
+}
+
+QPushButton:checked {
+    background-color: rgb(30, 195, 55);
+    color: rgb(255, 255, 255);
+    border-radius: 15px;
+}</string>
+           </property>
+           <property name="text">
+            <string>YOLO</string>
+           </property>
+           <property name="checkable">
+            <bool>false</bool>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="SAM2_bnt">
+           <property name="minimumSize">
+            <size>
+             <width>61</width>
+             <height>31</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>61</width>
+             <height>31</height>
+            </size>
+           </property>
+           <property name="font">
+            <font>
+             <family>NanumSquareRound</family>
+             <pointsize>10</pointsize>
+             <bold>false</bold>
+            </font>
+           </property>
+           <property name="cursor">
+            <cursorShape>PointingHandCursor</cursorShape>
+           </property>
+           <property name="styleSheet">
+            <string notr="true">QPushButton {
+    background-color: rgb(36, 39, 44);
+    color: rgb(255, 255, 255);
+    border-radius: 15px;
+}
+
+QPushButton:checked {
+    background-color: rgb(30, 195, 55);
+    color: rgb(255, 255, 255);
+    border-radius: 15px;
+}</string>
+           </property>
+           <property name="text">
+            <string>SAM2</string>
+           </property>
+           <property name="checkable">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="label_setting_bnt">
+           <property name="minimumSize">
+            <size>
+             <width>61</width>
+             <height>31</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>61</width>
+             <height>31</height>
+            </size>
+           </property>
+           <property name="font">
+            <font>
+             <family>NanumSquareRound</family>
+             <pointsize>10</pointsize>
+             <bold>false</bold>
+            </font>
+           </property>
+           <property name="cursor">
+            <cursorShape>PointingHandCursor</cursorShape>
+           </property>
+           <property name="styleSheet">
+            <string notr="true">background-color: rgb(36, 39, 44);
+color: rgb(255, 255, 255);
+border-radius: 15px;
+</string>
+           </property>
+           <property name="text">
+            <string>라벨 설정</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <spacer name="horizontalSpacer_4">
+           <property name="orientation">
+            <enum>Qt::Orientation::Horizontal</enum>
+           </property>
+           <property name="sizeHint" stdset="0">
+            <size>
+             <width>40</width>
+             <height>20</height>
+            </size>
+           </property>
+          </spacer>
+         </item>
+         <item>
+          <widget class="QPushButton" name="shutdown_bnt">
+           <property name="minimumSize">
+            <size>
+             <width>61</width>
+             <height>31</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>61</width>
+             <height>31</height>
+            </size>
+           </property>
+           <property name="font">
+            <font>
+             <family>NanumSquareRound</family>
+             <pointsize>10</pointsize>
+             <bold>false</bold>
+            </font>
+           </property>
+           <property name="cursor">
+            <cursorShape>PointingHandCursor</cursorShape>
+           </property>
+           <property name="styleSheet">
+            <string notr="true">background-color: rgb(237, 51, 59);
+color: rgb(255, 255, 255);
+border-radius: 15px;
+</string>
+           </property>
+           <property name="text">
+            <string>닫기</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+      </layout>
+     </item>
+     <item>
+      <spacer name="verticalSpacer_2">
+       <property name="orientation">
+        <enum>Qt::Orientation::Vertical</enum>
+       </property>
+       <property name="sizeType">
+        <enum>QSizePolicy::Policy::Fixed</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>20</width>
+         <height>1</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+     <item>
+      <layout class="QHBoxLayout" name="horizontalLayout_2">
+       <item>
+        <widget class="QWidget" name="label_info_widget" native="true">
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+           <horstretch>0</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
+         </property>
+         <property name="minimumSize">
+          <size>
+           <width>251</width>
+           <height>510</height>
+          </size>
+         </property>
+         <property name="maximumSize">
+          <size>
+           <width>251</width>
+           <height>9999</height>
+          </size>
+         </property>
+         <layout class="QVBoxLayout" name="verticalLayout_2">
+          <item>
+           <widget class="QPushButton" name="img_dir_folder_select_bnt">
+            <property name="minimumSize">
+             <size>
+              <width>80</width>
+              <height>31</height>
+             </size>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>235</width>
+              <height>30</height>
+             </size>
+            </property>
+            <property name="font">
+             <font>
+              <family>NanumSquareRound</family>
+              <pointsize>9</pointsize>
+              <bold>false</bold>
+             </font>
+            </property>
+            <property name="cursor">
+             <cursorShape>PointingHandCursor</cursorShape>
+            </property>
+            <property name="styleSheet">
+             <string notr="true">
+background-color: rgb(36, 39, 44);
+color: rgb(255, 255, 255);
+border-radius: 15px;
+
+</string>
+            </property>
+            <property name="text">
+             <string>이미지 폴더 선택</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="label_dir_folder_select_bnt">
+            <property name="minimumSize">
+             <size>
+              <width>80</width>
+              <height>31</height>
+             </size>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>233</width>
+              <height>31</height>
+             </size>
+            </property>
+            <property name="font">
+             <font>
+              <family>NanumSquareRound</family>
+              <pointsize>9</pointsize>
+              <bold>false</bold>
+             </font>
+            </property>
+            <property name="cursor">
+             <cursorShape>PointingHandCursor</cursorShape>
+            </property>
+            <property name="styleSheet">
+             <string notr="true">
+background-color: rgb(36, 39, 44);
+color: rgb(255, 255, 255);
+border-radius: 15px;
+
+</string>
+            </property>
+            <property name="text">
+             <string>라벨 폴더 선택</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <layout class="QVBoxLayout" name="verticalLayout">
+            <item>
+             <widget class="QListWidget" name="label_list">
+              <property name="maximumSize">
+               <size>
+                <width>233</width>
+                <height>16777215</height>
+               </size>
+              </property>
+              <property name="font">
+               <font>
+                <pointsize>10</pointsize>
+               </font>
+              </property>
+              <property name="focusPolicy">
+               <enum>Qt::FocusPolicy::NoFocus</enum>
+              </property>
+              <property name="styleSheet">
+               <string notr="true">QTableWidget {
+    background-color: rgb(13, 16, 23); /* 테이블 전체 배경색 */
+    color: rgb(255, 255, 255);
+}
+
+QHeaderView::section {
+    color: rgb(209, 209, 209); /* 헤더 텍스트 색상 - 회색 */
+background-color: rgb(7, 7, 16); /* 테이블 전체 배경색 */
+}
+
+QListWidget::item {
+    color: rgb(255, 255, 255); /* 기본 상태에서의 텍스트 색상 - 흰색 */
+
+}
+
+QListWidget::item:selected {
+    background-color: rgb(140, 167, 123); /* 선택된 셀의 배경색 */
+    color: rgb(255, 255, 255);
+
+}
+
+QScrollBar:vertical {
+    border: 1px solid #999999;
+    background: #b3b3b3c6;
+    width: 8px;
+}
+QScrollBar::handle:vertical {
+background: #2f2f2f; 
+min-height: 10px;
+width: 8px;
+
+}
+</string>
+              </property>
+              <property name="editTriggers">
+               <set>QAbstractItemView::EditTrigger::NoEditTriggers</set>
+              </property>
+              <property name="dragEnabled">
+               <bool>false</bool>
+              </property>
+              <property name="selectionMode">
+               <enum>QAbstractItemView::SelectionMode::ContiguousSelection</enum>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QWidget" name="widget" native="true">
+              <property name="styleSheet">
+               <string notr="true">    QWidget {
+background-color: rgb(36, 39, 44);
+color: rgb(255, 255, 255);
+border-radius: 10px;
+
+}</string>
+              </property>
+              <layout class="QVBoxLayout" name="verticalLayout_8">
+               <item>
+                <layout class="QVBoxLayout" name="verticalLayout_9">
+                 <item>
+                  <layout class="QHBoxLayout" name="horizontalLayout_11">
+                   <item>
+                    <widget class="QLabel" name="object_conf_label">
+                     <property name="sizePolicy">
+                      <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+                       <horstretch>0</horstretch>
+                       <verstretch>0</verstretch>
+                      </sizepolicy>
+                     </property>
+                     <property name="minimumSize">
+                      <size>
+                       <width>106</width>
+                       <height>31</height>
+                      </size>
+                     </property>
+                     <property name="maximumSize">
+                      <size>
+                       <width>111</width>
+                       <height>16777215</height>
+                      </size>
+                     </property>
+                     <property name="font">
+                      <font>
+                       <family>Sans Serif</family>
+                       <pointsize>10</pointsize>
+                       <bold>false</bold>
+                      </font>
+                     </property>
+                     <property name="styleSheet">
+                      <string notr="true">color: rgb(255, 255, 255);</string>
+                     </property>
+                     <property name="text">
+                      <string>object conf</string>
+                     </property>
+                     <property name="alignment">
+                      <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set>
+                     </property>
+                    </widget>
+                   </item>
+                   <item>
+                    <widget class="QSpinBox" name="object_conf_value">
+                     <property name="sizePolicy">
+                      <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+                       <horstretch>0</horstretch>
+                       <verstretch>0</verstretch>
+                      </sizepolicy>
+                     </property>
+                     <property name="minimumSize">
+                      <size>
+                       <width>70</width>
+                       <height>31</height>
+                      </size>
+                     </property>
+                     <property name="maximumSize">
+                      <size>
+                       <width>16777215</width>
+                       <height>31</height>
+                      </size>
+                     </property>
+                     <property name="font">
+                      <font>
+                       <pointsize>10</pointsize>
+                      </font>
+                     </property>
+                     <property name="styleSheet">
+                      <string notr="true">
+    QSpinBox {
+        subcontrol-origin: padding;
+        subcontrol-position: top right;
+        background: rgb(13, 16, 23);
+        color: rgb(255, 255, 255);
+		border-radius: 1px;
+	
+
+
+    }
+
+
+
+QSpinBox::up-button {
+    subcontrol-origin: border;
+    subcontrol-position: top right; /* 업 버튼 위치 */
+    width: 20px;
+    height: 20px;
+}
+
+
+
+QSpinBox::down-button {
+    subcontrol-origin: border;
+    subcontrol-position: bottom right; /* 업 버튼 위치 */
+    width: 20px;
+    height: 20px;
+}</string>
+                     </property>
+                     <property name="minimum">
+                      <number>1</number>
+                     </property>
+                     <property name="maximum">
+                      <number>100</number>
+                     </property>
+                     <property name="value">
+                      <number>33</number>
+                     </property>
+                    </widget>
+                   </item>
+                  </layout>
+                 </item>
+                 <item>
+                  <layout class="QHBoxLayout" name="horizontalLayout_12">
+                   <item>
+                    <widget class="QLabel" name="object_IOU_label">
+                     <property name="sizePolicy">
+                      <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+                       <horstretch>0</horstretch>
+                       <verstretch>0</verstretch>
+                      </sizepolicy>
+                     </property>
+                     <property name="minimumSize">
+                      <size>
+                       <width>106</width>
+                       <height>31</height>
+                      </size>
+                     </property>
+                     <property name="maximumSize">
+                      <size>
+                       <width>111</width>
+                       <height>16777215</height>
+                      </size>
+                     </property>
+                     <property name="font">
+                      <font>
+                       <family>Sans Serif</family>
+                       <pointsize>10</pointsize>
+                       <bold>false</bold>
+                      </font>
+                     </property>
+                     <property name="styleSheet">
+                      <string notr="true">color: rgb(255, 255, 255);</string>
+                     </property>
+                     <property name="text">
+                      <string>object IOU</string>
+                     </property>
+                     <property name="alignment">
+                      <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set>
+                     </property>
+                    </widget>
+                   </item>
+                   <item>
+                    <widget class="QSpinBox" name="object_IOU_value">
+                     <property name="sizePolicy">
+                      <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+                       <horstretch>0</horstretch>
+                       <verstretch>0</verstretch>
+                      </sizepolicy>
+                     </property>
+                     <property name="minimumSize">
+                      <size>
+                       <width>70</width>
+                       <height>31</height>
+                      </size>
+                     </property>
+                     <property name="maximumSize">
+                      <size>
+                       <width>16777215</width>
+                       <height>31</height>
+                      </size>
+                     </property>
+                     <property name="font">
+                      <font>
+                       <pointsize>10</pointsize>
+                      </font>
+                     </property>
+                     <property name="styleSheet">
+                      <string notr="true">
+    QSpinBox {
+        subcontrol-origin: padding;
+        subcontrol-position: top right;
+        background: rgb(13, 16, 23);
+        color: rgb(255, 255, 255);
+		border-radius: 1px;
+	
+
+
+    }
+
+
+
+QSpinBox::up-button {
+    subcontrol-origin: border;
+    subcontrol-position: top right; /* 업 버튼 위치 */
+
+    width: 20px;
+    height: 20px;
+}
+
+
+
+QSpinBox::down-button {
+    subcontrol-origin: border;
+    subcontrol-position: bottom right; /* 업 버튼 위치 */
+    width: 20px;
+    height: 20px;
+}</string>
+                     </property>
+                     <property name="minimum">
+                      <number>1</number>
+                     </property>
+                     <property name="maximum">
+                      <number>100</number>
+                     </property>
+                     <property name="singleStep">
+                      <number>1</number>
+                     </property>
+                     <property name="stepType">
+                      <enum>QAbstractSpinBox::StepType::DefaultStepType</enum>
+                     </property>
+                     <property name="value">
+                      <number>50</number>
+                     </property>
+                     <property name="displayIntegerBase">
+                      <number>10</number>
+                     </property>
+                    </widget>
+                   </item>
+                  </layout>
+                 </item>
+                </layout>
+               </item>
+              </layout>
+             </widget>
+            </item>
+           </layout>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <layout class="QVBoxLayout" name="verticalLayout_3">
+         <property name="spacing">
+          <number>0</number>
+         </property>
+         <item>
+          <widget class="QWidget" name="label_class_widget" native="true">
+           <property name="minimumSize">
+            <size>
+             <width>0</width>
+             <height>48</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>9999</width>
+             <height>48</height>
+            </size>
+           </property>
+           <layout class="QVBoxLayout" name="verticalLayout_5">
+            <item>
+             <layout class="QHBoxLayout" name="horizontalLayout_8">
+              <property name="sizeConstraint">
+               <enum>QLayout::SizeConstraint::SetFixedSize</enum>
+              </property>
+              <item>
+               <layout class="QHBoxLayout" name="horizontalLayout_7">
+                <property name="spacing">
+                 <number>6</number>
+                </property>
+                <item>
+                 <layout class="QHBoxLayout" name="horizontalLayout">
+                  <item>
+                   <widget class="QPushButton" name="cls_0">
+                    <property name="sizePolicy">
+                     <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+                      <horstretch>0</horstretch>
+                      <verstretch>0</verstretch>
+                     </sizepolicy>
+                    </property>
+                    <property name="minimumSize">
+                     <size>
+                      <width>55</width>
+                      <height>25</height>
+                     </size>
+                    </property>
+                    <property name="maximumSize">
+                     <size>
+                      <width>55</width>
+                      <height>25</height>
+                     </size>
+                    </property>
+                    <property name="font">
+                     <font>
+                      <family>Sans</family>
+                      <pointsize>10</pointsize>
+                     </font>
+                    </property>
+                    <property name="cursor">
+                     <cursorShape>PointingHandCursor</cursorShape>
+                    </property>
+                    <property name="styleSheet">
+                     <string notr="true">
+QPushButton{
+background-color: rgb(255, 56, 56);
+color: rgb(255, 255, 255);
+border-radius: 9px;
+border: 1px solid rgba(255, 255, 255, 100);
+}
+
+
+QPushButton:checked {
+                color: white;
+				border-radius: 9px;
+				border: 2px solid rgb(255, 255, 255);
+
+            }</string>
+                    </property>
+                    <property name="text">
+                     <string>person</string>
+                    </property>
+                    <property name="checkable">
+                     <bool>true</bool>
+                    </property>
+                   </widget>
+                  </item>
+                 </layout>
+                </item>
+                <item>
+                 <spacer name="horizontalSpacer_2">
+                  <property name="orientation">
+                   <enum>Qt::Orientation::Horizontal</enum>
+                  </property>
+                  <property name="sizeType">
+                   <enum>QSizePolicy::Policy::Expanding</enum>
+                  </property>
+                  <property name="sizeHint" stdset="0">
+                   <size>
+                    <width>562</width>
+                    <height>20</height>
+                   </size>
+                  </property>
+                 </spacer>
+                </item>
+                <item>
+                 <widget class="QPushButton" name="label_del_bnt">
+                  <property name="sizePolicy">
+                   <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+                    <horstretch>0</horstretch>
+                    <verstretch>0</verstretch>
+                   </sizepolicy>
+                  </property>
+                  <property name="minimumSize">
+                   <size>
+                    <width>102</width>
+                    <height>25</height>
+                   </size>
+                  </property>
+                  <property name="maximumSize">
+                   <size>
+                    <width>9999</width>
+                    <height>25</height>
+                   </size>
+                  </property>
+                  <property name="font">
+                   <font>
+                    <family>Sans</family>
+                    <pointsize>10</pointsize>
+                   </font>
+                  </property>
+                  <property name="cursor">
+                   <cursorShape>PointingHandCursor</cursorShape>
+                  </property>
+                  <property name="styleSheet">
+                   <string notr="true">border-radius: 9px;
+background-color: rgb(255, 49, 38);
+color: rgb(255, 255, 255);</string>
+                  </property>
+                  <property name="text">
+                   <string>라벨 모두 삭제</string>
+                  </property>
+                 </widget>
+                </item>
+               </layout>
+              </item>
+             </layout>
+            </item>
+           </layout>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="label_image_viewer">
+           <property name="sizePolicy">
+            <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+             <horstretch>0</horstretch>
+             <verstretch>0</verstretch>
+            </sizepolicy>
+           </property>
+           <property name="minimumSize">
+            <size>
+             <width>640</width>
+             <height>460</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>9999</width>
+             <height>9999</height>
+            </size>
+           </property>
+           <property name="font">
+            <font>
+             <family>Sans</family>
+            </font>
+           </property>
+           <property name="styleSheet">
+            <string notr="true">border: 1px solid rgb(119, 118, 123);
+border-radius: 10px ;</string>
+           </property>
+           <property name="text">
+            <string/>
+           </property>
+           <property name="textFormat">
+            <enum>Qt::TextFormat::PlainText</enum>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignmentFlag::AlignCenter</set>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+      </layout>
+     </item>
+     <item>
+      <layout class="QHBoxLayout" name="horizontalLayout_5">
+       <item>
+        <spacer name="horizontalSpacer">
+         <property name="orientation">
+          <enum>Qt::Orientation::Horizontal</enum>
+         </property>
+         <property name="sizeType">
+          <enum>QSizePolicy::Policy::Expanding</enum>
+         </property>
+         <property name="sizeHint" stdset="0">
+          <size>
+           <width>940</width>
+           <height>20</height>
+          </size>
+         </property>
+        </spacer>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="horizontalLayout_4">
+         <item>
+          <widget class="QPushButton" name="label_save_bnt">
+           <property name="sizePolicy">
+            <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+             <horstretch>0</horstretch>
+             <verstretch>0</verstretch>
+            </sizepolicy>
+           </property>
+           <property name="minimumSize">
+            <size>
+             <width>76</width>
+             <height>39</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>76</width>
+             <height>39</height>
+            </size>
+           </property>
+           <property name="font">
+            <font>
+             <family>Sans</family>
+             <pointsize>10</pointsize>
+            </font>
+           </property>
+           <property name="cursor">
+            <cursorShape>PointingHandCursor</cursorShape>
+           </property>
+           <property name="styleSheet">
+            <string notr="true">background-color: rgb(30, 195, 55);
+color: rgb(255, 255, 255);
+border-radius: 19px;
+
+</string>
+           </property>
+           <property name="text">
+            <string>저장</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="label_data_del_bnt">
+           <property name="sizePolicy">
+            <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+             <horstretch>0</horstretch>
+             <verstretch>0</verstretch>
+            </sizepolicy>
+           </property>
+           <property name="minimumSize">
+            <size>
+             <width>76</width>
+             <height>39</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>76</width>
+             <height>39</height>
+            </size>
+           </property>
+           <property name="font">
+            <font>
+             <family>Sans</family>
+             <pointsize>10</pointsize>
+            </font>
+           </property>
+           <property name="cursor">
+            <cursorShape>PointingHandCursor</cursorShape>
+           </property>
+           <property name="styleSheet">
+            <string notr="true">background-color: rgb(255, 49, 38);
+color: rgb(255, 255, 255);
+border-radius: 19px;
+</string>
+           </property>
+           <property name="text">
+            <string>삭제</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+      </layout>
+     </item>
+    </layout>
+   </item>
+  </layout>
+ </widget>
+ <resources>
+  <include location="../resource.qrc"/>
+ </resources>
+ <connections/>
+</ui>

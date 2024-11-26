@@ -9,16 +9,13 @@ test:  # test images (optional)
 # Classes
 names:
   0: person
-  1: car
-  2: truck
-  3: bus
-  4: bicycle
-  5: motorcycle
-  6: dog
-  7: cat
-  8: bird
-  9: fire
-  
+  1: bicycle
+  2: car
+  3: motorcycle
+  4: bus
+  5: truck
+  6: fire
+
 
 
 
