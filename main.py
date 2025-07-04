@@ -22,6 +22,8 @@ import traceback
 from ultralytics import YOLO
 from sam2.build_sam import build_sam2_video_predictor
 
+from multiprocessing import Process
+torch.multiprocessing.set_start_method('spawn', force=True)
 COLOR = {
     0: (220, 20, 60),   # Crimson - person
     1: (60, 179, 113),  # Medium Sea Green - bicycle
@@ -170,6 +172,13 @@ class Labeling_Viewer(QLabel):
             painter.setBrush(brush)
 
             painter.drawRect(rect)
+            
+            # Draw corners as circles
+            corner_radius = 3
+            painter.setBrush(QBrush(QColor(color[0], color[1], color[2])))
+            corners = [(x1, y1), (x2, y1), (x1, y2), (x2, y2)]
+            for corner in corners:
+                painter.drawEllipse(QPoint(corner[0], corner[1]), corner_radius, corner_radius)
 
         if self.drawing_new_box and self.drag_start_pos and self.mouse_pos:
             pen = QPen(QColor(0, 255, 0), 2, Qt.DashLine)
@@ -185,23 +194,37 @@ class Labeling_Viewer(QLabel):
             painter.drawLine(0, self.mouse_pos.y(), self.width(), self.mouse_pos.y())
             painter.drawLine(self.mouse_pos.x(), 0, self.mouse_pos.x(), self.height())
 
+            corner = self.get_corner(self.mouse_pos)
+            if corner:
+                if corner == 'top_left':
+                    self.setCursor(QCursor(Qt.SizeFDiagCursor))  # ↖↘ 방향
+                elif corner == 'top_right':
+                    self.setCursor(QCursor(Qt.SizeBDiagCursor))  # ↗↙ 방향
+                elif corner == 'bottom_left':
+                    self.setCursor(QCursor(Qt.SizeBDiagCursor))  # ↗↙ 방향
+                elif corner == 'bottom_right':
+                    self.setCursor(QCursor(Qt.SizeFDiagCursor))  # ↖↘ 방향
+            else:
+                self.setCursor(QCursor(Qt.ArrowCursor))  # 기본 포인터
+
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton and self.labeling_flag:
             self.drag_start_pos = event.position().toPoint()
             self.drawing_new_box = True
             for index, label in enumerate(self.label_list):
                 cls, xc, yc, w, h, color = label
-                x1 = int((xc - w / 2) * self.width())
-                y1 = int((yc - h / 2) * self.height())
-                x2 = int((xc + w / 2) * self.width())
-                y2 = int((yc + h / 2) * self.height())
+                x1 = int((xc - w / 2) * self.width()) - 3
+                y1 = int((yc - h / 2) * self.height()) - 3
+                x2 = int((xc + w / 2) * self.width()) + 3
+                y2 = int((yc + h / 2) * self.height()) + 3
                 rect = QRect(x1, y1, x2 - x1, y2 - y1)
 
                 if rect.contains(event.position().toPoint()):
                     self.drawing_new_box = False
                     self.selected_box = index
-                    corner = self.get_resize_corner(event.position().toPoint(), rect)
-                    if corner and self.box_resize_mode:
+                    corner = self.get_resize_corner(event.position().toPoint())
+
+                    if corner:
                         self.resizing = True
                         self.resize_corner = corner
                     else:
@@ -266,6 +289,7 @@ class Labeling_Viewer(QLabel):
             self.create_new_box(event.position().toPoint())
         self.dragging = False
         self.resizing = False
+        self.resize_corner = None
         self.drawing_new_box = False
 
     def enterEvent(self, event):
@@ -282,109 +306,95 @@ class Labeling_Viewer(QLabel):
         super().resizeEvent(event)
         self.display_image()
 
-    def get_resize_corner(self, pos, rect):
-        margin = 50
+    def get_resize_corner(self, pos):
+        """Determine which corner is being dragged."""
+        if self.selected_box is None or self.selected_box >= len(self.label_list):
+            return None
+        cls, xc, yc, w, h, color = self.label_list[self.selected_box]
+        x1 = int((xc - w / 2) * self.width())
+        y1 = int((yc - h / 2) * self.height())
+        x2 = int((xc + w / 2) * self.width())
+        y2 = int((yc + h / 2) * self.height())
         corners = {
-            "top_left": rect.topLeft(),
-            "top_right": rect.topRight(),
-            "bottom_left": rect.bottomLeft(),
-            "bottom_right": rect.bottomRight()
+            'top_left': QPoint(x1, y1),
+            'top_right': QPoint(x2, y1),
+            'bottom_left': QPoint(x1, y2),
+            'bottom_right': QPoint(x2, y2)
         }
-        edges = {
-            "top": (rect.left(), rect.top(), rect.right(), rect.top()),
-            "bottom": (rect.left(), rect.bottom(), rect.right(), rect.bottom()),
-            "left": (rect.left(), rect.top(), rect.left(), rect.bottom()),
-            "right": (rect.right(), rect.top(), rect.right(), rect.bottom())
-        }
-        for corner, corner_pos in corners.items():
-            if (corner_pos - pos).manhattanLength() < margin:
+        for corner, point in corners.items():
+            if (point - pos).manhattanLength() < 4:  # Tolerance for detecting corner clicks
                 return corner
-        for edge, (x1, y1, x2, y2) in edges.items():
-            if x1 == x2:  # Vertical edge
-                if abs(pos.x() - x1) < margin and y1 <= pos.y() <= y2:
-                    return edge
-            elif y1 == y2:  # Horizontal edge
-                if abs(pos.y() - y1) < margin and x1 <= pos.x() <= x2:
-                    return edge
+        return False
+
+    def get_corner(self, pos):
+        for cls, xc, yc, w, h, color in self.label_list:
+            x1 = int((xc - w / 2) * self.width())
+            y1 = int((yc - h / 2) * self.height())
+            x2 = int((xc + w / 2) * self.width())
+            y2 = int((yc + h / 2) * self.height())
+
+            corners = {
+                'top_left': QPoint(x1, y1),
+                'top_right': QPoint(x2, y1),
+                'bottom_left': QPoint(x1, y2),
+                'bottom_right': QPoint(x2, y2)
+            }
+
+            # 탐지 범위를 확대하여 마우스 위치를 비교
+            for corner, point in corners.items():
+                if (point - pos).manhattanLength() < 4:  # 허용 범위: 4픽셀
+                    return corner
+                
         return None
 
     def resize_box(self, pos):
         cls, xc, yc, w, h, color = self.label_list[self.selected_box]
-        x1 = (xc - w / 2) * self.width()
-        y1 = (yc - h / 2) * self.height()
-        x2 = (xc + w / 2) * self.width()
-        y2 = (yc + h / 2) * self.height()
+        dx = pos.x() - self.drag_start_pos.x()
+        dy = pos.y() - self.drag_start_pos.y()
 
-        if self.resize_corner == "top_left":
-            x1 = pos.x()
-            y1 = pos.y()
-            if x1 >= x2:
-                self.resize_corner = "top_right"
-                x1, x2 = x2, x1
-            elif y1 > y2:
-                self.resize_corner = "bottom_left"
-                y1, y2 = y2, y1
+        dx /= self.width()
+        dy /= self.height()
 
-        elif self.resize_corner == "top_right":
-            x2 = pos.x()
-            y1 = pos.y()
-            if x2 < x1:
-                self.resize_corner = "top_left"
-                x1, x2 = x2, x1
-            if y1 > y2:
-                self.resize_corner = "bottom_right"
-                y1, y2 = y2, y1
-        elif self.resize_corner == "bottom_left":
-            x1 = pos.x()
-            y2 = pos.y()
-            if x1 > x2:
-                self.resize_corner = "bottom_right"
-                x1, x2 = x2, x1
-            if y2 < y1:
-                self.resize_corner = "top_left"
-                y1, y2 = y2, y1
-        elif self.resize_corner == "bottom_right":
-            x2 = pos.x()
-            y2 = pos.y()
-            if x2 < x1:
-                self.resize_corner = "bottom_left"
-                x1, x2 = x2, x1
-            if y2 < y1:
-                self.resize_corner = "top_right"
-                y1, y2 = y2, y1
+        x1 = (xc - w / 2)
+        y1 = (yc - h / 2)
+        x2 = (xc + w / 2)
+        y2 = (yc + h / 2)
 
-        elif self.resize_corner == "top":
-            y1 = pos.y()
-            if y1 > y2:
-                self.resize_corner = "bottom"
-                y1, y2 = y2, y1
-        elif self.resize_corner == "bottom":
-            y2 = pos.y()
-            if y2 < y1:
-                self.resize_corner = "top"
-                y1, y2 = y2, y1
-        elif self.resize_corner == "left":
-            x1 = pos.x()
-            if x1 > x2:
-                self.resize_corner = "right"
-                x1, x2 = x2, x1
-        elif self.resize_corner == "right":
-            x2 = pos.x()
-            if x2 < x1:
-                self.resize_corner = "left"
-                x1, x2 = x2, x1
+        # Resize based on the corner being dragged
+        if self.resize_corner == 'top_left':
+            x1 += dx
+            y1 += dy
+        elif self.resize_corner == 'top_right':
+            x2 += dx
+            y1 += dy
+        elif self.resize_corner == 'bottom_left':
+            x1 += dx
+            y2 += dy
+        elif self.resize_corner == 'bottom_right':
+            x2 += dx
+            y2 += dy
 
-        if x1 <= 0: x1 = 1
-        if x2 >= self.width() : x2 = self.width() -1
-        if y1 <= 0: y1 = 1
-        if y2 >= self.height(): y2 = self.height() - 1
+        new_xc = (x2 + x1) / 2
+        new_yc = (y2 + y1) / 2
+        new_w = (x2 - x1) 
+        new_h = (y2 - y1) 
 
-        new_xc = ((x1 + x2) / 2) / self.width()
-        new_yc = ((y1 + y2) / 2) / self.height()
-        new_w = abs(x2 - x1) / self.width()
-        new_h = abs(y2 - y1) / self.height()
-        
-        self.label_list[self.selected_box] = [cls, new_xc, new_yc, new_w, new_h, color]
+        # 경계 조건 체크 수정: new_w와 new_h 사용
+        if (new_xc - new_w / 2) < 0 or (new_xc + new_w / 2) > 1:
+            new_xc = xc
+            new_w = w
+
+        if (new_yc - new_h / 2) < 0 or (new_yc + new_h / 2) > 1:
+            new_yc = yc
+            new_h = h
+
+        # Update the bounding box size and position
+        self.label_list[self.selected_box][1] = new_xc
+        self.label_list[self.selected_box][2] = new_yc
+        self.label_list[self.selected_box][3] = new_w
+        self.label_list[self.selected_box][4] = new_h
+
+        self.drag_start_pos = pos
 
     def create_new_box(self, end_pos):
         start_x = self.drag_start_pos.x()
@@ -411,7 +421,9 @@ class Labeling_Viewer(QLabel):
 
         # 새 박스가 너무 작지 않은 경우에만 추가
         if new_w * new_h * self.width() * self.height() > 100:
-            color = self.parent.color(cls_num)
+            # color = self.parent.color(cls_num)
+            color = self.parent.color[cls_num]
+
 
             self.label_list.append([cls_num, new_xc, new_yc, new_w, new_h, color])
 
@@ -454,17 +466,61 @@ class LabelingDialog(QDialog):
         self.label_ui.verticalLayout_3.addWidget(self.label_ui.label_image_viewer)
 
         self.label_ui.label_setting_bnt.clicked.connect(self.open_label_info)
+        self.open_label_info(yaml_file_path = os.path.join("./", "cfg", "ms-ai-v1.3.yaml"))
 
         self.label_ui.label_del_bnt.clicked.connect(self.del_all_label)
         self.label_ui.img_dir_folder_select_bnt.clicked.connect(self.open_img_directory)
         self.label_ui.label_dir_folder_select_bnt.clicked.connect(self.open_label_directory)
         self.label_ui.SAM2_bnt.clicked.connect(self.run_SAM2)
         self.label_ui.YOLO_bnt.clicked.connect(self.run_YOLO)
+        self.label_ui.label_data_del_bnt.clicked.connect(self.delete_label_data)
 
 
         self.label_ui.label_list.itemDoubleClicked.connect(self.load_data)
 
         self.label_ui.shutdown_bnt.clicked.connect(self.close_window)
+
+    def delete_label_data(self):
+        # 현재 선택된 항목 확인
+        selected_item = self.label_ui.label_list.currentItem()
+        
+        if not selected_item:
+            print("삭제할 이미지를 선택해주세요.")
+            return
+        
+        # 선택된 이미지 파일명
+        filename = selected_item.text()
+        
+        # 이미지 파일 경로
+        img_file_path = os.path.join(self.img_directory, filename)
+        
+        # 라벨 파일 경로
+        label_file_path = os.path.join(self.label_directory, filename[:-4] + ".txt")
+        
+        try:
+            # 이미지 파일 삭제
+            if os.path.exists(img_file_path):
+                os.remove(img_file_path)
+                print(f"이미지 파일 삭제됨: {filename}")
+            
+            # 라벨 파일 삭제
+            if os.path.exists(label_file_path):
+                os.remove(label_file_path)
+                print(f"라벨 파일 삭제됨: {filename[:-4]}.txt")
+            
+            # 목록에서 항목 제거
+            current_row = self.label_ui.label_list.currentRow()
+            self.label_ui.label_list.takeItem(current_row)
+            
+            # 현재 뷰어 초기화
+            self.label_ui.label_image_viewer.frame = None
+            self.label_ui.label_image_viewer.display_image()
+            self.label_ui.label_image_viewer.display_label([])
+            
+            print(f"'{filename}' 파일이 성공적으로 삭제되었습니다.")
+            
+        except Exception as e:
+            print(f"파일 삭제 중 오류 발생: {e}")
 
     def run_YOLO(self):
         cls_num_select = None
@@ -480,9 +536,11 @@ class LabelingDialog(QDialog):
         # model_name = f"ms-ai_24-09-30-M.pt"
         
         # model_name = f"yolo11x.pt"
-        model_name = "ms-ai_v1.3_24-11-19-M.pt"
+        model_name = "ms-ai_24-12-31-M.pt"
+        # model_name = "test_swim_1.pt"
 
-        weight_path = os.path.join(os.getcwd(), "weights", "yolo", model_name)
+
+        weight_path = os.path.join(os.getcwd(), "..","weights", "yolo", model_name)
         yolo_model = YOLO(weight_path) 
 
         selected_indexes = [index.row() for index in self.label_ui.label_list.selectedIndexes()]
@@ -590,252 +648,61 @@ class LabelingDialog(QDialog):
 
 
     def run_SAM2(self):
-        try:
-            cls_num_select = None
-            predictor = None
+        cls_num_select = None
+        predictor = None
 
-            for index, button in enumerate(self.label_ui.label_image_viewer.cls_bnt_list):
-                if button.isChecked():
-                    cls_num_select = index
-                    break
+        for index, button in enumerate(self.label_ui.label_image_viewer.cls_bnt_list):
+            if button.isChecked():
+                cls_num_select = index
+                break
 
-            if cls_num_select is None:
-                print("아무 버튼도 체크되지 않았습니다. 클래스 번호를 지정하려면 하나의 버튼을 체크하세요.")
-                if self.label_ui.SAM2_bnt.isChecked():
-                    self.label_ui.SAM2_bnt.setChecked(False)
-                return
-            temp_path = os.path.join(self.img_directory, "temp")
-            
-            selected_indexes = [index.row() for index in self.label_ui.label_list.selectedIndexes()]
+        if cls_num_select is None:
+            print("아무 버튼도 체크되지 않았습니다. 클래스 번호를 지정하려면 하나의 버튼을 체크하세요.")
+            if self.label_ui.SAM2_bnt.isChecked():
+                self.label_ui.SAM2_bnt.setChecked(False)
+            return
+        temp_path = os.path.join(self.img_directory, "temp")
+        
+        selected_indexes = [index.row() for index in self.label_ui.label_list.selectedIndexes()]
 
-            batch_mini = len(selected_indexes) // 100
-            with torch.no_grad():
-                for i in range(batch_mini + 1):
-                    os.makedirs(temp_path, exist_ok=True)
+        with torch.no_grad():
+            os.makedirs(temp_path, exist_ok=True)
 
-                    img_file_name_list = []
-                    # copy_img_file_name_list = []
+            img_file_name_list = []
+            for index in selected_indexes:
+                item = self.label_ui.label_list.item(index)
+                img_name = item.text()
+                img_file_name_list.append(img_name)
 
-                    start_index = i * 100
-                    end_index = min((i + 1) * 100, len(selected_indexes))  
+                copy_img_name = f"{index:04d}_" + img_name.split("_")[-1]
+                # copy_img_file_name_list.append(copy_img_name)
 
-                    print(selected_indexes[start_index])
-
-                    if start_index != 0:
-                        start_index -= 1
-
-                    for index in selected_indexes[start_index:end_index]:
-                        item = self.label_ui.label_list.item(index)
-                        img_name = item.text()
-
-                        img_file_name_list.append(img_name)
-                        copy_img_name = img_name.split("_")[-1]
-                        # copy_img_file_name_list.append(copy_img_name)
-
-                        source_path = os.path.join(self.img_directory, img_name)  # 원본 파일 경로
-                        destination_path = os.path.join(temp_path, copy_img_name)  # 복사할 파일의 대상 경로
-
-                        # 파일 복사
-                        shutil.copy(source_path, destination_path)
-
-                    # 이미지 로드 및 리스트에 저장
-                    img = cv2.imread(os.path.join(self.img_directory, img_file_name_list[0]))
-
-                    torch.autocast(device_type="cuda", dtype=torch.bfloat16).__enter__()
-                    sam2_checkpoint = os.path.join(os.getcwd(), "weights", "segment_anything_2", "sam2.1_hiera_large.pt")
-                    # model_cfg = "./sam2.1_hiera_l.yaml"
-                    # model_cfg = os.path.join(os.getcwd(), "weights", "segment_anything_2","sam2.1_hiera_l.yaml")
-                    model_cfg = "configs/sam2.1/sam2.1_hiera_l.yaml"
-
-                    predictor = build_sam2_video_predictor(model_cfg, sam2_checkpoint)
-                    inference_state = predictor.init_state(video_path=os.path.join(temp_path),
-                                                            offload_video_to_cpu = True,
-                                                        offload_state_to_cpu = True)
-
-
-                    predictor.reset_state(inference_state)
-
-                    frist_label_list = []
-
-                    if os.path.exists(os.path.join(self.label_directory, img_file_name_list[0][:-4] + ".txt")):
-                        # 텍스트 파일 열기
-                        with open(os.path.join(self.label_directory, img_file_name_list[0][:-4] + ".txt"), 'r') as file:
-                            lines = file.readlines()
-
-                            for line in lines:
-                                # 공백으로 데이터를 분리
-                                items = line.strip().split()
-                                
-                                # 문자열을 float 또는 int 타입으로 변환
-                                cls = int(items[0])
-                                ncx = float(items[1])
-                                ncy = float(items[2])
-                                nw = float(items[3])
-                                nh = float(items[4])
-                                
-                                # 리스트에 데이터를 추가 (튜플 형태로 저장)
-                                frist_label_list.append((cls, ncx, ncy, nw, nh))
-
-                    for i , (cls, ncx, ncy, nw, nh) in enumerate(frist_label_list):
-                        if cls_num_select == cls:
-                            x1 = int((ncx - nw / 2) * img.shape[1])
-                            y1 = int((ncy - nh / 2) * img.shape[0])
-                            x2 = int((ncx + nw / 2) * img.shape[1])
-                            y2 = int((ncy + nh / 2) * img.shape[0])
-
-                            ann_frame_idx = 0  # the frame index we interact with
-                            ann_obj_id = int(i)  # give a unique id to each object we interact with (it can be any integers)
-                            box = np.array([int(x1), int(y1), int(x2), int(y2)])
-
-                            _, out_obj_ids, out_mask_logits = predictor.add_new_points_or_box(
-                                                                    inference_state=inference_state,
-                                                                    frame_idx=ann_frame_idx,
-                                                                    obj_id=ann_obj_id,
-                                                                    box=box,
-                                                                    )
-
-                    video_segments = {} 
-                    label_dict = {}
-
-                    for out_frame_idx, out_obj_ids, out_mask_logits in predictor.propagate_in_video(inference_state):
-                        video_segments[out_frame_idx] = {out_obj_id: (out_mask_logits[i] > 0.5).cpu().numpy()
-                                                            for i, out_obj_id in enumerate(out_obj_ids)
-                                                            }
-                            
-                    for out_frame_idx in video_segments:
-                        # item_text = self.label_ui.label_list.item(out_frame_idx).text()
-                        item_text = img_file_name_list[out_frame_idx]
-                        
-                        for out_obj_id, out_mask in video_segments[out_frame_idx].items():
-                            bboxes = get_bboxes_from_binary_img(out_mask)
-
-                            if item_text not in label_dict:
-                                label_dict[item_text] = []
-
-                            if len(bboxes) > 0:
-                                for x, y, w, h in bboxes:
-                                    if w * h >= 100:  # 너무 작은 bbox는 제거
-                                        ncx = float((x + w / 2) / img.shape[1])
-                                        ncy = float((y + h / 2) / img.shape[0])
-                                        nw = w / img.shape[1]
-                                        nh = h / img.shape[0]
-
-                                        label_dict[item_text].append([cls_num_select, ncx, ncy, nw, nh])
-                    
-                    for image_name, bboxes in label_dict.items():
-                        label_file_path = os.path.join(self.label_directory, f"{image_name[:-4]}.txt")
-                        labels_ori = []
-                        updated_labels = []
-
-                        # 2. Check if label file exists, and read existing label data if present
-                        if os.path.exists(label_file_path):
-                            with open(label_file_path, 'r') as file:
-                                for line in file:
-                                    parts = line.strip().split()
-                                    cls_num_ori = int(parts[0])
-                                    x_center = float(parts[1])
-                                    y_center = float(parts[2])
-                                    width = float(parts[3])
-                                    height = float(parts[4])
-
-                                    # Convert YOLO format to [x1, y1, x2, y2]
-                                    x1 = x_center - width / 2
-                                    y1 = y_center - height / 2
-                                    x2 = x_center + width / 2
-                                    y2 = y_center + height / 2
-                                
-                                    if cls_num_ori == cls_num_select:
-                                        labels_ori.append([cls_num_ori, x1, y1, x2, y2])
-
-                                    else: updated_labels.append([cls_num_ori, x1, y1, x2, y2])
-                                        
-
-                        # 3. 새로운 박스를 기존 박스와 비교하여 IOU 0.5 이상일 경우 병합
-                        for new_box in bboxes:
-                            new_cls_num, new_x, new_y, new_w, new_h = new_box
-                            new_x1 = new_x - new_w / 2
-                            new_y1 = new_y - new_h / 2
-                            new_x2 = new_x + new_w / 2
-                            new_y2 = new_y + new_h / 2
-
-                            merged = False
-
-                            for ori_box in labels_ori:
-                                ori_cls_num, ori_x1, ori_y1, ori_x2, ori_y2 = ori_box
-                                iou = get_iou([ori_x1, ori_y1, ori_x2, ori_y2], [new_x1, new_y1, new_x2, new_y2])
-
-                                if iou >= self.label_ui.object_IOU_value.value() / 100:
-                                    # 병합된 박스의 좌표 계산
-                                    merged_x1 = min(ori_x1, new_x1)
-                                    merged_y1 = min(ori_y1, new_y1)
-                                    merged_x2 = max(ori_x2, new_x2)
-                                    merged_y2 = max(ori_y2, new_y2)
-                                    updated_labels.append([new_cls_num, merged_x1, merged_y1, merged_x2, merged_y2])
-                                    
-                                    # 기존 박스 제거
-                                    labels_ori.remove(ori_box)
-                                    merged = True
-                                    break
-
-                            if not merged:
-                                updated_labels.append([new_cls_num, new_x1, new_y1, new_x2, new_y2])
-
-                        # 새로운 박스와 겹치지 않은 기존 박스를 updated_labels에 추가
-                        for remaining_ori_box in labels_ori:
-                            updated_labels.append(remaining_ori_box)
-
-                        # 4. Save the newly defined label data back to the file
-                        print(label_file_path)
-                        with open(label_file_path, 'w') as file:
-                            for label in updated_labels:
-                                cls_num, x1, y1, x2, y2 = label
-                                # Convert back to YOLO format
-                                x_center = (x1 + x2) / 2
-                                y_center = (y1 + y2) / 2
-                                width = x2 - x1
-                                height = y2 - y1
-                                file.write(f"{cls_num} {x_center:.3} {y_center:.3} {width:.3} {height:.3}\n")
-
-                        if os.path.exists(temp_path):
-                            shutil.rmtree(temp_path)
-
-                    del predictor, video_segments, inference_state, label_dict, labels_ori, updated_labels
-                        
-                    torch.cuda.empty_cache()
-                    gc.collect()
-                    torch.cuda.reset_max_memory_allocated()
-                    torch.cuda.reset_max_memory_cached()
-
-        except Exception as e:
-            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            tb = traceback.format_exc()
-            print(f"Error occurred at {current_time}: {e}\n{tb}", file=sys.stderr)
-            if os.path.exists(temp_path):
-                shutil.rmtree(temp_path)
-
-            del predictor, video_segments, inference_state, label_dict
-            torch.cuda.empty_cache()
-            gc.collect()
-            torch.cuda.reset_max_memory_allocated()
-            torch.cuda.reset_max_memory_cached()
-
+                source_path = os.path.join(self.img_directory, img_name)  # 원본 파일 경로
+                destination_path = os.path.join(temp_path, copy_img_name)  # 복사할 파일의 대상 경로
+                
+                # 파일 복사
+                shutil.copy(source_path, destination_path)
+            batch_multiprocess_sam(img_file_name_list, self.img_directory, temp_path, self.label_directory, cls_num_select, self.label_ui.object_IOU_value.value())
 
         if self.label_ui.SAM2_bnt.isChecked():
             self.label_ui.SAM2_bnt.setChecked(False)
         print("Done")
 
+
     def close_window(self):
         self.close()
 
-    def open_label_info(self):
-        file_dialog = QFileDialog()
-        # file_path, _ = file_dialog.getOpenFileName(
-        #     None,  # 부모 위젯은 None
-        #     "Select YAML File",  # 창 제목
-        #     "",  # 초기 디렉토리
-        #     "YAML Files (*.yaml *.yml);;All Files (*)"  # 필터
-        # )
-        file_path = os.path.join("./", "cfg", "ms-ai-v1.3.yaml")
+    def open_label_info(self, yaml_file_path = None):
+        if yaml_file_path:
+            file_path = yaml_file_path
+        else:
+            file_dialog = QFileDialog()
+            file_path, _ = file_dialog.getOpenFileName(
+                None,  # 부모 위젯은 None
+                "Select YAML File",  # 창 제목
+                "",  # 초기 디렉토리
+                "YAML Files (*.yaml *.yml);;All Files (*)"  # 필터
+            )
 
         # 파일이 선택되었는지 확인하고 경로 저장
         if file_path:
@@ -905,8 +772,11 @@ class LabelingDialog(QDialog):
             # if data_list:
             self.label_ui.label_image_viewer.display_label(data_list)
 
-    def open_label_directory(self):
-        self.label_directory = QFileDialog.getExistingDirectory(None, "Select Directory")
+    def open_label_directory(self, init_path = None):
+        if init_path:
+            self.label_directory = init_path
+        else:
+            self.label_directory = QFileDialog.getExistingDirectory(None, "Select Directory")
         # self.label_directory = os.path.join("./dataset/coco/train/labels_new")
 
         if self.label_directory:
@@ -925,6 +795,14 @@ class LabelingDialog(QDialog):
             # 선택한 디렉토리의 파일 목록 가져오기
             dir = QDir(self.img_directory)
             files = dir.entryList(QDir.Files)  # 파일만 목록에 추가
+            # 이미지 파일 확장자 리스트
+            image_extensions = ['.jpg', '.jpeg', '.png', '.bmp']
+            
+            # 이미지 파일만 필터링
+            files = [f for f in files if os.path.splitext(f.lower())[1] in image_extensions]
+            
+            # 숫자 기준으로 정렬 (1,2,3,10,20 순서로)
+            files.sort(key=lambda x: int(''.join(filter(str.isdigit, x))) if any(c.isdigit() for c in x) else x)
 
             # 파일 목록을 QListWidget에 추가
             for file in files:
@@ -933,6 +811,7 @@ class LabelingDialog(QDialog):
                 item.setTextAlignment(Qt.AlignCenter)
                 self.label_ui.label_list.addItem(item)
 
+            self.open_label_directory(os.path.join(self.img_directory, "..", "labels"))
 
     def eventFilter(self, source, event):
         if event.type() == QEvent.KeyPress:
@@ -941,7 +820,7 @@ class LabelingDialog(QDialog):
         return super(LabelingDialog, self).eventFilter(source, event)
 
     def del_all_label(self):
-        self.label_buffer[self.cnt] = []
+        self.label_ui.label_image_viewer.label_list = []
         self.label_ui.label_image_viewer.display_image()
 
     def keyPressEvent(self, event):
@@ -977,9 +856,15 @@ class LabelingDialog(QDialog):
             self.label_ui.label_image_viewer.box_resize_mode = True
 
         elif event.key() == Qt.Key_F:
-            # self.del_label_data()
-            self.label_ui.label_image_viewer.display_label([])
+            self.delete_label_data()
+            # self.label_ui.label_image_viewer.display_label([])
             pass            
+
+        elif event.key() == Qt.Key_E:
+            self.del_all_label()
+            # self.label_ui.label_image_viewer.display_label([])
+            pass            
+
 
         # elif (event.key() == Qt.Key_S and event.modifiers() == Qt.ControlModifier) or event.key() == Qt.Key_Space:
         elif (event.key() == Qt.Key_S and event.modifiers() == Qt.ControlModifier) or event.key() == Qt.Key_S:
@@ -1031,22 +916,38 @@ class LabelingDialog(QDialog):
 
 def get_bboxes_from_binary_img(mask):
     mask_uint8 = np.squeeze(mask).astype(np.uint8)  # 데이터 타입 변환
+    # cv2.imshow("test",mask_uint8*255)
+    # cv2.waitKey(0)
     contours, _ = cv2.findContours(mask_uint8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    
     return [cv2.boundingRect(contour) for contour in contours]
 
+
 def get_iou(box1, box2):
-    # box format: [x1, y1, x2, y2]
-    x1 = max(box1[0], box2[0])
-    y1 = max(box1[1], box2[1])
-    x2 = min(box1[2], box2[2])
-    y2 = min(box1[3], box2[3])
-
-    intersection = max(0, x2 - x1) * max(0, y2 - y1)
-    box1_area = (box1[2] - box1[0]) * (box1[3] - box1[1])
-    box2_area = (box2[2] - box2[0]) * (box2[3] - box2[1])
-    union = box1_area + box2_area - intersection
-
-    return intersection / union if union != 0 else 0
+    """
+    두 박스 간의 IOU를 계산합니다.
+    box1, box2: [x1, y1, x2, y2] 형태
+    """
+    x1_1, y1_1, x2_1, y2_1 = box1
+    x1_2, y1_2, x2_2, y2_2 = box2
+    
+    # 교집합 영역 계산
+    x1_inter = max(x1_1, x1_2)
+    y1_inter = max(y1_1, y1_2)
+    x2_inter = min(x2_1, x2_2)
+    y2_inter = min(y2_1, y2_2)
+    
+    if x2_inter <= x1_inter or y2_inter <= y1_inter:
+        return 0.0
+    
+    intersection = (x2_inter - x1_inter) * (y2_inter - y1_inter)
+    
+    # 합집합 영역 계산
+    area1 = (x2_1 - x1_1) * (y2_1 - y1_1)
+    area2 = (x2_2 - x1_2) * (y2_2 - y1_2)
+    union = area1 + area2 - intersection
+    
+    return intersection / union if union > 0 else 0.0
 
 def get_iou_2(box1, box2):
     # box format: [ncx, ncy, nw, nh]
@@ -1079,6 +980,249 @@ def get_iou_2(box1, box2):
 
     return intersection / union if union != 0 else 0
 
+def batch_multiprocess_sam(img_file_name_list, img_directory, temp_path, label_directory, cls_num_select, object_IOU_value):
+    try:
+        # 이미지 로드 및 리스트에 저장
+        img = cv2.imread(os.path.join(img_directory, img_file_name_list[0]))
+
+        torch_autocast_ctx = torch.autocast(device_type="cuda", dtype=torch.bfloat16)
+        torch_autocast_ctx.__enter__()
+        sam2_checkpoint = os.path.join(os.getcwd(), "..", "weights", "segment_anything_2", "sam2.1_hiera_base_plus.pt")
+        # model_cfg = "./sam2.1_hiera_l.yaml"
+        # model_cfg = os.path.join(os.getcwd(), "weights", "segment_anything_2","sam2.1_hiera_l.yaml")
+        model_cfg = "configs/sam2.1/sam2.1_hiera_b+.yaml"
+
+        predictor = build_sam2_video_predictor(model_cfg, sam2_checkpoint)
+        inference_state = predictor.init_state(video_path=os.path.join(temp_path),
+                                                offload_video_to_cpu = True,
+                                            offload_state_to_cpu = True)
+
+
+        predictor.reset_state(inference_state)
+
+        frist_label_list = []
+
+        if os.path.exists(os.path.join(label_directory, img_file_name_list[0][:-4] + ".txt")):
+            # 텍스트 파일 열기
+            with open(os.path.join(label_directory, img_file_name_list[0][:-4] + ".txt"), 'r') as file:
+                lines = file.readlines()
+
+                for line in lines:
+                    # 공백으로 데이터를 분리
+                    items = line.strip().split()
+                    
+                    # 문자열을 float 또는 int 타입으로 변환
+                    cls = int(items[0])
+                    ncx = float(items[1])
+                    ncy = float(items[2])
+                    nw = float(items[3])
+                    nh = float(items[4])
+                    
+                    # 리스트에 데이터를 추가 (튜플 형태로 저장)
+                    frist_label_list.append((cls, ncx, ncy, nw, nh))
+
+        for i , (cls, ncx, ncy, nw, nh) in enumerate(frist_label_list):
+            if cls_num_select == cls:
+                x1 = int((ncx - nw / 2) * img.shape[1])
+                y1 = int((ncy - nh / 2) * img.shape[0])
+                x2 = int((ncx + nw / 2) * img.shape[1])
+                y2 = int((ncy + nh / 2) * img.shape[0])
+
+                ann_frame_idx = 0  # the frame index we interact with
+                ann_obj_id = int(i)  # give a unique id to each object we interact with (it can be any integers)
+                box = np.array([int(x1), int(y1), int(x2), int(y2)])
+
+                _, out_obj_ids, out_mask_logits = predictor.add_new_points_or_box(
+                                                        inference_state=inference_state,
+                                                        frame_idx=ann_frame_idx,
+                                                        obj_id=ann_obj_id,
+                                                        box=box,
+                                                        )
+
+        video_segments = {} 
+        label_dict = {}
+
+        for out_frame_idx, out_obj_ids, out_mask_logits in predictor.propagate_in_video(inference_state):
+            video_segments[out_frame_idx] = {out_obj_id: (out_mask_logits[i] > 0.).cpu().numpy()
+                                                for i, out_obj_id in enumerate(out_obj_ids)
+                                                }
+                
+        for out_frame_idx in video_segments:
+            # item_text = self.label_ui.label_list.item(out_frame_idx).text()
+            item_text = img_file_name_list[out_frame_idx]
+            
+            for out_obj_id, out_mask in video_segments[out_frame_idx].items():
+                bboxes = get_bboxes_from_binary_img(out_mask)
+
+                if item_text not in label_dict:
+                    label_dict[item_text] = []
+
+                # if len(bboxes) > 0:
+                #     for x, y, w, h in bboxes:
+                #         if w * h >= 250:  # 너무 작은 bbox는 제거
+                #             ncx = float((x + w / 2) / img.shape[1])
+                #             ncy = float((y + h / 2) / img.shape[0])
+                #             nw = w / img.shape[1]
+                #             nh = h / img.shape[0]
+
+                #             label_dict[item_text].append([cls_num_select, ncx, ncy, nw, nh])
+
+                if len(bboxes) > 0:
+                    for box in bboxes:
+                        x, y, w, h = box
+                        if w * h >= 250:  # 너무 작은 bbox는 제거
+
+                            min_x = min(box[0] for box in bboxes)
+                            min_y = min(box[1] for box in bboxes)
+                            max_x = max(box[0] + box[2] for box in bboxes)  # x + width
+                            max_y = max(box[1] + box[3] for box in bboxes)  # y + height
+
+                            ncx = float(((min_x + max_x) / 2) / img.shape[1])
+                            ncy = float(((min_y + max_y) / 2) / img.shape[0])
+                            nw = (max_x - min_x) / img.shape[1]
+                            nh = (max_y - min_y) / img.shape[0]
+
+
+                            label_dict[item_text].append([cls_num_select, ncx, ncy, nw, nh])
+        
+        for image_name, bboxes in label_dict.items():
+            label_file_path = os.path.join(label_directory, f"{image_name[:-4]}.txt")
+            labels_ori = []
+            updated_labels = []
+
+            # 2. Check if label file exists, and read existing label data if present
+            if os.path.exists(label_file_path):
+                with open(label_file_path, 'r') as file:
+                    for line in file:
+                        parts = line.strip().split()
+                        cls_num_ori = int(parts[0])
+                        x_center = float(parts[1])
+                        y_center = float(parts[2])
+                        width = float(parts[3])
+                        height = float(parts[4])
+
+                        # Convert YOLO format to [x1, y1, x2, y2]
+                        x1 = x_center - width / 2
+                        y1 = y_center - height / 2
+                        x2 = x_center + width / 2
+                        y2 = y_center + height / 2
+                    
+                        if cls_num_ori == cls_num_select:
+                            labels_ori.append([cls_num_ori, x1, y1, x2, y2])
+
+                        else: updated_labels.append([cls_num_ori, x1, y1, x2, y2])
+                            
+
+            # 3. 새로운 박스를 기존 박스와 비교하여 IOU 이상일 경우 병합
+            for new_box in bboxes:
+                new_cls_num, new_x, new_y, new_w, new_h = new_box
+                new_x1 = new_x - new_w / 2
+                new_y1 = new_y - new_h / 2
+                new_x2 = new_x + new_w / 2
+                new_y2 = new_y + new_h / 2
+
+                merged = False
+
+                for ori_box in labels_ori:
+                    ori_cls_num, ori_x1, ori_y1, ori_x2, ori_y2 = ori_box
+                    if new_cls_num == ori_cls_num:
+                        iou = get_iou([ori_x1, ori_y1, ori_x2, ori_y2], [new_x1, new_y1, new_x2, new_y2])
+                        print([ori_x1, ori_y1, ori_x2, ori_y2], [new_x1, new_y1, new_x2, new_y2], iou)
+
+                        if iou >= object_IOU_value / 100:
+                            # 병합된 박스의 좌표 계산
+                            merged_x1 = min(ori_x1, new_x1)
+                            merged_y1 = min(ori_y1, new_y1)
+                            merged_x2 = max(ori_x2, new_x2)
+                            merged_y2 = max(ori_y2, new_y2)
+                            updated_labels.append([new_cls_num, merged_x1, merged_y1, merged_x2, merged_y2])
+                            
+                            # 기존 박스 제거
+                            labels_ori.remove(ori_box)
+                            merged = True
+                            break
+
+                if not merged:
+                    updated_labels.append([new_cls_num, new_x1, new_y1, new_x2, new_y2])
+
+            # 새로운 박스와 겹치지 않은 기존 박스를 updated_labels에 추가
+            for remaining_ori_box in labels_ori:
+                updated_labels.append(remaining_ori_box)
+
+            #updated_labels 모든 박스에 대해서 IOU 계산후 겹친 박스 제거
+            iou_threshold = 0.9
+            final_labels = []
+            used = [False] * len(updated_labels)
+
+            for i in range(len(updated_labels)):
+                if used[i]:
+                    continue
+                cls_i, x1_i, y1_i, x2_i, y2_i = updated_labels[i]
+                merged = False
+                for j in range(i + 1, len(updated_labels)):
+                    if used[j]:
+                        continue
+                    cls_j, x1_j, y1_j, x2_j, y2_j = updated_labels[j]
+                    if cls_i != cls_j:
+                        continue
+                    iou = get_iou([x1_i, y1_i, x2_i, y2_i], [x1_j, y1_j, x2_j, y2_j])
+                    if iou >= iou_threshold:
+                        # 병합
+                        x1_new = min(x1_i, x1_j)
+                        y1_new = min(y1_i, y1_j)
+                        x2_new = max(x2_i, x2_j)
+                        y2_new = max(y2_i, y2_j)
+                        final_labels.append([cls_i, x1_new, y1_new, x2_new, y2_new])
+                        used[j] = True
+                        merged = True
+                        break
+                if not merged:
+                    final_labels.append([cls_i, x1_i, y1_i, x2_i, y2_i])
+                used[i] = True
+
+            print(label_file_path)
+
+            # 최종 박스만 저장
+            with open(label_file_path, 'w') as file:
+                for label in final_labels:
+                    cls_num, x1, y1, x2, y2 = label
+                    x_center = (x1 + x2) / 2
+                    y_center = (y1 + y2) / 2
+                    width = x2 - x1
+                    height = y2 - y1
+                    file.write(f"{cls_num} {x_center:.3} {y_center:.3} {width:.3} {height:.3}\n")
+
+            if os.path.exists(temp_path):
+                shutil.rmtree(temp_path)
+                
+        predictor.reset_state(inference_state)
+
+        del predictor
+        del inference_state
+        # 기타 대용량 객체 삭제
+        del video_segments, label_dict
+        # autocast context 닫기
+        torch_autocast_ctx.__exit__(None, None, None)
+        # gc 및 cuda 메모리 반환
+        gc.collect()
+        torch.cuda.empty_cache()
+        torch.cuda.reset_max_memory_allocated()
+        torch.cuda.reset_max_memory_cached()
+
+    except Exception as e:
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        tb = traceback.format_exc()
+        print(f"Error occurred at {current_time}: {e}\n{tb}", file=sys.stderr)
+
+        del predictor
+        del inference_state
+        torch.cuda.empty_cache()
+        gc.collect()
+        torch.cuda.reset_max_memory_allocated()
+        torch.cuda.reset_max_memory_cached()
+
+
+    print("Done")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)  # Create the QApplication instance

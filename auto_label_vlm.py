@@ -207,8 +207,7 @@ def get_img_buffer(video_path:str) -> list:
 
     return img_buffer
 
-def get_yolo_label(buffer:list, init_model = False) -> dict:
-    model_path = os.getcwd() + "/../weights/yolo/yolov8m.pt"
+def get_yolo_label(model_path:str,buffer:list, init_model = False) -> dict:
     model = YOLO(model_path)
 
     yolo_label_data = {}
@@ -256,7 +255,7 @@ def get_yolo_label(buffer:list, init_model = False) -> dict:
                         x1, y1, x2, y2 = box[0:4].astype('int')  # float64 to int
                         cls = box[-1].astype('int')
                         frame_labels.append([cls, x1, y1, x2, y2, box[4]])
-                
+
                 yolo_label_data[frame_num] = frame_labels
 
     return yolo_label_data
@@ -425,11 +424,17 @@ def run_LLM(img_buffer : dict, label : dict):
             pil_img.save(img_buffer, format='JPEG')
             pil_img_base64 = base64.b64encode(img_buffer.getvalue()).decode('utf-8')
 
-            messages = [{"role": "user", 
+            try:
+                messages = [{"role": "user", 
                         "content": [{"type": "image", 
                                "image": f"data:image;base64,{pil_img_base64}"}, 
                               {"type": "text", 
                                "text": "Do you see " + f"{NAMES[cls]}" + " in this image and you answer in the following format.\n{anwser: 'yes or no'}"}]}]
+
+            except Exception as e:
+                    print(e)
+                    print(cls, x1, y1, x2, y2, score)
+
 
             text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
             image_inputs, video_inputs, video_kwargs = process_vision_info(messages, return_video_kwargs=True)
@@ -468,14 +473,19 @@ def run_LLM(img_buffer : dict, label : dict):
             # assistant 부분만 파싱
             assistant_answer = parse_assistant_response(response)
 
-            print(f"Parsed assistant answer: {assistant_answer}")
+            print(f"Parsed assistant answer: {NAMES[cls]}, {assistant_answer}")
 
             if "yes" in assistant_answer.lower():
                 new_label.append([cls, x1, y1, x2, y2, score])
 
         label[frame_num] = new_label
 
-    del model, processor, generated_ids, inputs, image_inputs, video_inputs, video_kwargs, text
+    try:    
+        del model, processor, generated_ids, inputs, image_inputs, video_inputs, video_kwargs, text
+
+    except Exception as e:
+        print(e)
+        
     torch.cuda.empty_cache()
     gc.collect()
 
@@ -614,7 +624,10 @@ def run_sam(img_buffer : list, label : dict, img_path : str):
                                 label_dict[out_frame_idx].append([obj_id_dict[out_obj_id][0], x, y, x+w, y+h, obj_id_dict[out_obj_id][1]])
 
     for frame_num, box_list in label_dict.items():
-        final_label[frame_num] = nms(box_list, iou_threshold=0.33)
+        if len(box_list) > 0:
+            final_label[frame_num] = nms(box_list, iou_threshold=0.33)
+        else:
+            final_label[frame_num] = label[frame_num]
 
     return final_label
 
@@ -654,13 +667,15 @@ def save_final_dataset(save_video_name : str, save_dir : str, tmp_img_path : str
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 weight_name = "ms-ai_24-12-31-M.pt"
+# weight_name = "yolov8m_standard.pt"
+
 yolo_weight_path = os.path.join(os.getcwd(), "..", "weights", "yolo", weight_name)
 
-train_data_path = os.path.join(os.getcwd(), "dataset", "산단_주차장", "train")
+train_data_path = os.path.join(os.getcwd(), "dataset", "함박관_입구", "val")
 train_data_video_path = os.path.join(train_data_path, "videos")
 train_data_video_name_list = os.listdir(train_data_video_path)
 
-for train_data_video_name in train_data_video_name_list:
+for train_data_video_name in tqdm(train_data_video_name_list):
 
     #비디오 10초씩 나누고 이미지화
     video_path = os.path.join(train_data_video_path, train_data_video_name)
@@ -671,10 +686,9 @@ for train_data_video_name in train_data_video_name_list:
 
         img_buffer = get_img_buffer(video_path = segment_img_path)
 
-        yolo_label_data = get_yolo_label(buffer = img_buffer, init_model = True)
+        yolo_label_data = get_yolo_label(yolo_weight_path, buffer = img_buffer, init_model = False)
 
         zeroshot_label_data = get_zero_shot_label(buffer = img_buffer, device = device)
-
         # YOLO와 Zero-shot 라벨 데이터 통합
         merged_label_data = merge_label_data(yolo_label_data, zeroshot_label_data, iou_threshold=0.5)
         
@@ -690,6 +704,10 @@ for train_data_video_name in train_data_video_name_list:
 
 
     shutil.rmtree(os.path.join(train_data_path, "tmp_images", train_data_video_name[:-4]))
+    # 비디오 파일을 원본 폴더로 이동
+    os.makedirs(os.path.join(train_data_path, "videos_ori"), exist_ok=True)
+    print(video_path, os.path.join(train_data_path, "videos_ori", train_data_video_name))
+    shutil.move(video_path, os.path.join(train_data_path, "videos_ori", train_data_video_name))
 
         # 박스 plot하는 함수
         # for frame_num, boxes in sam_label.items():
